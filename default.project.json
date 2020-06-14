@@ -1,0 +1,12 @@
+{
+  "name": "PogMacros",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "PogMacros": {
+        "$path": "src"
+      }
+    }
+  }
+}
