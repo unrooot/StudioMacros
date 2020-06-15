@@ -2,7 +2,6 @@
 
 local u2 = UDim2.new
 local v2 = Vector2.new
-local ud = UDim.new
 local clamp = math.clamp
 local c3 = Color3.fromRGB
 
