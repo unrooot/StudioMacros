@@ -51,6 +51,16 @@ local shortcuts = {
 		return gui
 	end;
 
+	["Make Frame w/ No Border"] = function(gui)
+		local frame = Instance.new("Frame")
+		frame.BorderSizePixel = 0
+		frame.Size = u2(0, 100, 0, 100)
+		frame.BackgroundColor3 = c3(255, 255, 255)
+		frame.Parent = gui
+
+		return frame
+	end;
+
 	["Make Transparent w/ No Border"] = function(gui)
 		gui.BackgroundTransparency = 1
 		gui.BorderSizePixel = 0
