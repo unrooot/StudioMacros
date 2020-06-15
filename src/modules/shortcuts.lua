@@ -23,15 +23,15 @@ local shortcuts = {
 	end;
 
 	["Up"] = function(gui)
-		gui.AnchorPoint = v2(gui.AnchorPoint.X, clamp(gui.AnchorPoint.Y + 0.5, 0, 1))
-		gui.Position = u2(gui.Position.X.Scale, 0, clamp(gui.Position.Y.Scale + 0.5, 0, 1), 0)
+		gui.AnchorPoint = v2(gui.AnchorPoint.X, clamp(gui.AnchorPoint.Y - 0.5, 0, 1))
+		gui.Position = u2(gui.Position.X.Scale, 0, clamp(gui.Position.Y.Scale - 0.5, 0, 1), 0)
 
 		return gui
 	end;
 
 	["Down"] = function(gui)
-		gui.AnchorPoint = v2(gui.AnchorPoint.X, clamp(gui.AnchorPoint.Y - 0.5, 0, 1))
-		gui.Position = u2(gui.Position.X.Scale, 0, clamp(gui.Position.Y.Scale - 0.5, 0, 1), 0)
+		gui.AnchorPoint = v2(gui.AnchorPoint.X, clamp(gui.AnchorPoint.Y + 0.5, 0, 1))
+		gui.Position = u2(gui.Position.X.Scale, 0, clamp(gui.Position.Y.Scale + 0.5, 0, 1), 0)
 
 		return gui
 	end;
