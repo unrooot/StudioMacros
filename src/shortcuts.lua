@@ -105,6 +105,7 @@ local shortcuts = {
 		padding.PaddingTop = ud(0, 5)
 		padding.PaddingLeft = ud(0, 5)
 		padding.PaddingRight = ud(0, 5)
+		padding.Parent = gui
 
 		return padding
 	end;
@@ -115,6 +116,7 @@ local shortcuts = {
 		padding.PaddingTop = ud(0, 10)
 		padding.PaddingLeft = ud(0, 10)
 		padding.PaddingRight = ud(0, 10)
+		padding.Parent = gui
 
 		return padding
 	end;
@@ -125,6 +127,7 @@ local shortcuts = {
 		padding.PaddingTop = ud(0, 15)
 		padding.PaddingLeft = ud(0, 15)
 		padding.PaddingRight = ud(0, 15)
+		padding.Parent = gui
 
 		return padding
 	end;
