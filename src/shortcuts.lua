@@ -1,5 +1,6 @@
 -- PogMacros shortcuts file
 
+local ud = UDim.new
 local u2 = UDim2.new
 local v2 = Vector2.new
 local clamp = math.clamp
@@ -100,30 +101,30 @@ local shortcuts = {
 
 	["Padding (5px, all directions)"] = function(gui)
 		local padding = Instance.new("UIPadding")
-		padding.PaddingBottom = u2(0, 5)
-		padding.PaddingTop = u2(0, 5)
-		padding.PaddingLeft = u2(0, 5)
-		padding.PaddingRight = u2(0, 5)
+		padding.PaddingBottom = ud(0, 5)
+		padding.PaddingTop = ud(0, 5)
+		padding.PaddingLeft = ud(0, 5)
+		padding.PaddingRight = ud(0, 5)
 
 		return padding
 	end;
 
 	["Padding (10px, all directions)"] = function(gui)
 		local padding = Instance.new("UIPadding")
-		padding.PaddingBottom = u2(0, 10)
-		padding.PaddingTop = u2(0, 10)
-		padding.PaddingLeft = u2(0, 10)
-		padding.PaddingRight = u2(0, 10)
+		padding.PaddingBottom = ud(0, 10)
+		padding.PaddingTop = ud(0, 10)
+		padding.PaddingLeft = ud(0, 10)
+		padding.PaddingRight = ud(0, 10)
 
 		return padding
 	end;
 
 	["Padding (15px, all directions)"] = function(gui)
 		local padding = Instance.new("UIPadding")
-		padding.PaddingBottom = u2(0, 15)
-		padding.PaddingTop = u2(0, 15)
-		padding.PaddingLeft = u2(0, 15)
-		padding.PaddingRight = u2(0, 15)
+		padding.PaddingBottom = ud(0, 15)
+		padding.PaddingTop = ud(0, 15)
+		padding.PaddingLeft = ud(0, 15)
+		padding.PaddingRight = ud(0, 15)
 
 		return padding
 	end;
