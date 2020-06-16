@@ -208,6 +208,15 @@ local shortcuts = {
 
 		return button
 	end;
+
+	["Resize TextLabel to TextBounds.X"] = function(gui)
+		assert(gui.ClassName == "TextLabel", "[PogMacros] selection is not a TextLabel!")
+
+		local bounds = game:GetService("TextService"):GetTextSize(gui.Text, gui.TextSize, gui.Font, v2(10000, gui.AbsoluteSize.Y))
+		gui.Size = u2(0, bounds.X, gui.Size.Y.Scale, gui.Size.Y.Offset)
+
+		return gui
+	end;
 }
 
 return shortcuts
