@@ -58,6 +58,8 @@ local shortcuts = {
 		frame.BackgroundColor3 = c3(255, 255, 255)
 		frame.Parent = gui
 
+		game:GetService("Selection"):Set({frame})
+
 		return frame
 	end;
 
@@ -74,6 +76,8 @@ local shortcuts = {
 		list.FillDirection = Enum.FillDirection.Vertical
 		list.Parent = gui
 
+		game:GetService("Selection"):Set({list})
+
 		return list
 	end;
 
@@ -81,6 +85,8 @@ local shortcuts = {
 		local list = Instance.new("UIListLayout")
 		list.FillDirection = Enum.FillDirection.Horizontal
 		list.Parent = gui
+
+		game:GetService("Selection"):Set({list})
 
 		return list
 	end;
@@ -94,6 +100,8 @@ local shortcuts = {
 		frame.CanvaseSize = u2()
 		frame.Parent = gui
 
+		game:GetService("Selection"):Set({frame})
+
 		return frame
 	end;
 
@@ -106,6 +114,8 @@ local shortcuts = {
 		frame.CanvaseSize = u2()
 		frame.Parent = gui
 
+		game:GetService("Selection"):Set({frame})
+
 		return frame
 	end;
 
@@ -116,6 +126,8 @@ local shortcuts = {
 		padding.PaddingLeft = ud(0, 5)
 		padding.PaddingRight = ud(0, 5)
 		padding.Parent = gui
+
+		game:GetService("Selection"):Set({padding})
 
 		return padding
 	end;
@@ -128,6 +140,8 @@ local shortcuts = {
 		padding.PaddingRight = ud(0, 10)
 		padding.Parent = gui
 
+		game:GetService("Selection"):Set({padding})
+
 		return padding
 	end;
 
@@ -139,6 +153,8 @@ local shortcuts = {
 		padding.PaddingRight = ud(0, 15)
 		padding.Parent = gui
 
+		game:GetService("Selection"):Set({padding})
+
 		return padding
 	end;
 
@@ -147,6 +163,8 @@ local shortcuts = {
 		grid.CellPadding = u2(0, 5, 0, 5)
 		grid.CellSize = u2(0, 100, 0, 100)
 		grid.Parent = gui
+
+		game:GetService("Selection"):Set({grid})
 
 		return grid
 	end;
@@ -161,6 +179,8 @@ local shortcuts = {
 		label.Size = u2(1, 0, 1, 0)
 		label.Parent = gui
 
+		game:GetService("Selection"):Set({label})
+
 		return label
 	end;
 
@@ -169,8 +189,10 @@ local shortcuts = {
 		button.Size = u2(1, 0, 1, 0)
 		button.BackgroundTransparency = 1
 		button.Text = ""
-		button.Name = "Hitbox"
+		button.Name = "button"
 		button.Parent = gui
+
+		game:GetService("Selection"):Set({button})
 
 		return button
 	end;

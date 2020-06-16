@@ -15,9 +15,12 @@ local shortcuts = require(script.Parent.shortcuts)
 
 -- populate information
 for i, v in pairs(shortcuts) do
-    local macro = plugin:CreatePluginAction(i, i, "generic", "rbxassetid://5168428496", true)
-    macro.Triggered:Connect(function()
-        local sel = game.Selection:Get()[1]
-        v(sel)
-    end)
+	local macro = plugin:CreatePluginAction(i, i, "generic", "rbxassetid://5168428496", true)
+	macro.Triggered:Connect(function()
+    	for _,x in pairs(game.Selection:Get()) do
+    		v(x)
+    	end
+		-- local sel = game.Selection:Get()[1]
+		-- v(sel)
+	end)
 end
