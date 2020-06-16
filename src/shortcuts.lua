@@ -97,7 +97,7 @@ local shortcuts = {
 		frame.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
 		frame.ScrollingDirection = Enum.ScrollingDirection.Y
 		frame.ScrollBarThickness = 8
-		frame.CanvaseSize = u2()
+		frame.CanvasSize = u2()
 		frame.Parent = gui
 
 		game:GetService("Selection"):Set({frame})
@@ -111,7 +111,7 @@ local shortcuts = {
 		frame.TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png"
 		frame.ScrollingDirection = Enum.ScrollingDirection.X
 		frame.ScrollBarThickness = 8
-		frame.CanvaseSize = u2()
+		frame.CanvasSize = u2()
 		frame.Parent = gui
 
 		game:GetService("Selection"):Set({frame})
