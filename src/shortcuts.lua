@@ -45,6 +45,18 @@ local shortcuts = {
 		return gui
 	end;
 
+	["Fill Horizontal"] = function(gui)
+		gui.Size = u2(1, 0, gui.Size.Y.Scale, gui.Size.Y.Offset)
+
+		return gui
+	end;
+
+	["Fill Vertical"] = function(gui)
+		gui.Size = u2(gui.Size.X.Scale, gui.Size.X.Offset, 1, 0)
+
+		return gui
+	end;
+
 	["Remove Border"] = function(gui)
 		gui.BorderSizePixel = 0
 
