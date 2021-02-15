@@ -1,0 +1,19 @@
+[selene]
+base = "lua51"
+name = "custom"
+
+[[DateTime.now.args]]
+type = "function"
+required = false
+
+[[DateTime.fromUniversalTime.args]]
+type = "function"
+required = false
+
+[selene.structs.Camera.CameraSubject]
+property = true
+writable = "overridden"
+
+[selene.structs.Camera.CFrame]
+property = true
+writable = "overridden"
