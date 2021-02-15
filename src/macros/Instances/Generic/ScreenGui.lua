@@ -7,6 +7,7 @@ return {
 	func = function()
 		local gui = Instance.new("ScreenGui")
 		gui.ResetOnSpawn = false
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		gui.Parent = StarterGui
 
 		Selection:Set({gui})
