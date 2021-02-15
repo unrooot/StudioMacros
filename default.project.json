@@ -1,10 +1,10 @@
 {
-  "name": "PogMacros",
+  "name": "StudioMacros",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "PogMacros": {
+      "StudioMacros": {
         "$path": "src"
       }
     }
