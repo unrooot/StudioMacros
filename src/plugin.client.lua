@@ -1,26 +1,21 @@
--- Pog Macros
--- { Unroot owes us each a ton of money for this! }
--- retro_mada & passhley
--- plugin stuff
+local Selection = game:GetService("Selection")
+local macros = script.Parent.macros
 
--- services
-local uis = game:GetService("UserInputService")
+for _,module in pairs(macros:GetDescendants()) do
+	if module:IsA("ModuleScript") then
+		local data = require(module)
+		local macro = plugin:CreatePluginAction(data.name, data.name, data.desc, "rbxassetid://5972593639", true)
 
--- plugin creation & initialization
-local toolbar = plugin:CreateToolbar("PogSuite")
-local button = toolbar:CreateButton("PogMacros", "UI Development Macros (Industry Grade!)", "rbxassetid://5168428496")
+		macro.Triggered:Connect(function()
+			local selected = Selection:Get()
 
--- services
-local shortcuts = require(script.Parent.shortcuts)
-
--- populate information
-for i, v in pairs(shortcuts) do
-	local macro = plugin:CreatePluginAction(i, i, "generic", "rbxassetid://5168428496", true)
-	macro.Triggered:Connect(function()
-    	for _,x in pairs(game.Selection:Get()) do
-    		v(x)
-    	end
-		-- local sel = game.Selection:Get()[1]
-		-- v(sel)
-	end)
+			if #selected > 0 then
+				for _,instance in ipairs(selected) do
+					data.func(instance)
+				end
+			else
+				data.func()
+			end
+		end)
+	end
 end
