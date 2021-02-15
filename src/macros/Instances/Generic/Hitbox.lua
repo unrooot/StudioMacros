@@ -8,6 +8,7 @@ return {
 		button.BackgroundTransparency = 1
 		button.Text = ""
 		button.ZIndex = 5
+		button.Active = true
 		button.Name = "button"
 		button.Size = UDim2.fromScale(1, 1)
 		button.Parent = gui
