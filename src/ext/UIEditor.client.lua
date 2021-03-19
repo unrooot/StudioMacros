@@ -1,40 +1,45 @@
-local CoreGui = game:GetService('CoreGui')
-local Selection = game:GetService('Selection')
+-- originally by retro_mada
+-- redone by friendlybiscuit to fix it not working all the time
+-- ui editor will now perish alone and un-loved
 
-local function toggle_editor()
-	local enabled = plugin:GetSetting('UIEditorDisabled')
+--= Constants & Variables =--
+local core_gui  = game:GetService('CoreGui')
+local editor    = nil
 
-	local editor = CoreGui:FindFirstChild('RobloxGUIEditor')
-	for _, h in pairs(editor:GetDescendants()) do
-		if h:IsA('ScreenGui') then
-			h.Enabled = enabled
-		end
-	end
+--= Wait For Editor =--
+while not core_gui:FindFirstChild('RobloxGUIEditor') do wait() end
+editor = core_gui.RobloxGUIEditor
+
+--= Functions =--
+function _G.refresh_editor() -- forgive me, for i regret nothing
+    if not editor then return end
+    
+    for _, descendant in pairs(editor:GetDescendants()) do
+        if descendant:IsA('ScreenGui') then
+            descendant.Enabled = not plugin:GetSetting('UIEditorDisabled')
+        end
+    end
 end
 
-local function selection_changed()
-	local selected = Selection:Get()
-
-	for _, v in pairs(selected) do
-		if v:IsA('GuiObject') then
-			if CoreGui:FindFirstChild('RobloxGUIEditor') then
-				toggle_editor()
-			end
-			break
-		end
-	end 
+function bind(object)
+    if object:IsA('ScreenGui') then
+        object.Enabled = not plugin:GetSetting('UIEditorDisabled')
+        
+        object.Changed:Connect(function()
+            object.Enabled = not plugin:GetSetting('UIEditorDisabled')
+        end)
+    end
 end
 
-CoreGui.ChildAdded:Connect(function(child)
-	if child.Name == 'RobloxGUIEditor' then
-		toggle_editor()
-		local handles = child:WaitForChild('m_handles')
-		handles.ChildAdded:Connect(function(child)
-			if child:IsA('ScreenGui') then
-				child.Enabled = plugin:GetSetting('UIEditorDisabled')
-			end
-		end)
-	end
-end)
+function init()
+    editor.DescendantAdded:Connect(bind)
+    
+    for _, descendant in pairs(editor:GetDescendants()) do
+        bind(descendant)
+    end
+    
+    _G.refresh_editor()
+end
 
-Selection.SelectionChanged:Connect(selection_changed)
+--= Init =--
+init()

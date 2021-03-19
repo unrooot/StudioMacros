@@ -1,24 +1,18 @@
--- retro_mada
+-- originally by retro_mada
+-- redone by friendlybiscuit to fix it not working all the time
+-- ui editor will now perish alone and un-loved
 
-local CoreGui = game:GetService('CoreGui')
-
-local function toggle_editor(enabled)
-	local editor = CoreGui:FindFirstChild('RobloxGUIEditor')
-	for _, h in pairs(editor:GetDescendants()) do
-		if h:IsA('ScreenGui') then
-			h.Enabled = enabled
-		end
-	end
-end
+local disabled = false
 
 return {
-	name = "Toggle UI Editor",
-	extended = true,
-	desc = "[StudioMacros] Toggle Roblox UI Editor.",
-	func = function(plugin)
-		local state = plugin:GetSetting('UIEditorDisabled') or false
-		state = not state
-		plugin:SetSetting('UIEditorDisabled', state)
-		toggle_editor(state)
-	end;
+    name = 'Toggle UI Editor',
+    extended = true,
+    desc = '[StudioMacros] Toggle the garbage Roblox UI Editor.',
+    func = function(plugin)
+        disabled = plugin:GetSetting('UIEditorDisabled') or false
+        disabled = not disabled
+        plugin:SetSetting('UIEditorDisabled', disabled)
+        
+        if _G.refresh_editor then _G.refresh_editor() end
+    end
 }
