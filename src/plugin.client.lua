@@ -1,4 +1,5 @@
 local Selection = game:GetService("Selection")
+
 local macros = script.Parent.macros
 
 for _,module in pairs(macros:GetDescendants()) do
@@ -11,10 +12,14 @@ for _,module in pairs(macros:GetDescendants()) do
 
 			if #selected > 0 then
 				for _,instance in ipairs(selected) do
-					data.func(instance)
+					if data.extended then
+						data.func(plugin, instance)
+					else
+						data.func(instance)
+					end
 				end
 			else
-				data.func()
+				data.func(data.extended and plugin)
 			end
 		end)
 	end
