@@ -1,8 +1,8 @@
 return {
-	name = "Insert UIGradient";
+	name = "Insert AspectRatio";
 	desc = "[StudioMacros] Inserts a UIAspectRatioConstraint.";
 	func = function(gui)
-		local gradient = Instance.new("UIAspectRatioConstraint")
-		gradient.Parent = gui
+		local aspectRatio = Instance.new("UIAspectRatioConstraint")
+		aspectRatio.Parent = gui
 	end;
 }
