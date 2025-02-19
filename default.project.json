@@ -1,12 +1,6 @@
 {
-  "name": "StudioMacros",
-  "tree": {
-    "$className": "DataModel",
-    "ReplicatedStorage": {
-      "$className": "ReplicatedStorage",
-      "StudioMacros": {
-        "$path": "src"
-      }
-    }
-  }
+	"name": "studiomacros",
+	"tree": {
+		"$path": "src"
+	}
 }
