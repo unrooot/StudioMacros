@@ -3,6 +3,7 @@ local require = require(script.Parent.loader).load(script)
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
+local Fzy = require("Fzy")
 local Rx = require("Rx")
 local Signal = require("Signal")
 local ValueObject = require("ValueObject")
@@ -63,6 +64,55 @@ function CommandEntry:SetDescription(description: string)
 	self._macroDescription.Value = description
 end
 
+function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
+	if not fzyConfig or not targetString or not searchQuery then
+		return
+	end
+
+	searchQuery = string.lower(searchQuery)
+
+	local positions = Fzy.positions(fzyConfig, searchQuery, string.lower(targetString))
+	if not positions or #positions == 0 then
+		return targetString
+	end
+
+	local ranges = {}
+	local startPos, endPos = positions[1], positions[1]
+
+	for i = 2, #positions do
+		if positions[i] == endPos + 1 then
+			endPos = positions[i]
+
+			if i == #positions then
+				table.insert(ranges, { startPos, endPos })
+			end
+		else
+			table.insert(ranges, { startPos, endPos })
+			startPos = positions[i]
+			endPos = positions[i]
+		end
+	end
+
+	if #ranges == 0 then
+		return targetString
+	end
+
+	local finalString = ""
+
+	for index, range in ranges do
+		local start = string.sub(targetString, index == 1 and 0 or ranges[index - 1][2] + 1, range[1] - 1)
+		local matched = string.sub(targetString, range[1], range[2])
+
+		finalString ..= `{start}<font color="#d0a4f7">{matched}</font>`
+
+		if index == #ranges then
+			finalString ..= string.sub(targetString, range[2] + 1, string.len(targetString))
+		end
+	end
+
+	return finalString
+end
+
 function CommandEntry:Render(props)
 	local target = self._percentVisibleTarget:Observe()
 
@@ -74,10 +124,21 @@ function CommandEntry:Render(props)
 		return Color3.fromRGB(150, 150, 150):Lerp(Color3.fromRGB(255, 255, 255), percent)
 	end);
 
+	local fzyConfig = props.FzyConfig
+	local transparency = props.Transparency
+
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
 		Size = UDim2.new(1, 0, 0, 45);
+
+		Visible = Blend.Computed(self._isGroupEntry, self._groupCollapsed, function(isGroupEntry, isCollapsed)
+			if isGroupEntry then
+				return true
+			else
+				return not isCollapsed
+			end
+		end);
 
 		LayoutOrder = self._isGroupEntry:Observe():Pipe({
 			Rx.map(function(isGroupEntry)
@@ -88,8 +149,11 @@ function CommandEntry:Render(props)
 		Blend.New "Frame" {
 			Name = "wrapper";
 			BackgroundColor3 = Color3.fromRGB(50, 50, 50);
-			BackgroundTransparency = 1;
 			Size = UDim2.fromScale(1, 1);
+
+			BackgroundTransparency = Blend.Computed(percentHighlighted, function(percent)
+				return 1 - percent
+			end);
 
 			Blend.New "UIListLayout" {
 				FillDirection = Enum.FillDirection.Horizontal;
@@ -110,7 +174,9 @@ function CommandEntry:Render(props)
 
 			Blend.New "UIStroke" {
 				Color = Color3.fromRGB(85, 85, 85);
-				Enabled = false;
+				Transparency = Blend.Computed(transparency, percentHighlighted, function(percent, percentHighlight)
+					return math.clamp(1 - percentHighlight + percent, 0, 1)
+				end);
 			};
 
 			Blend.New "UICorner" {
@@ -134,7 +200,7 @@ function CommandEntry:Render(props)
 					BackgroundTransparency = 1;
 					Image = self._groupIcon;
 					ImageColor3 = foregroundColor;
-					ImageTransparency = props.Transparency;
+					ImageTransparency = transparency;
 					LayoutOrder = 1;
 					Size = UDim2.fromOffset(15, 15);
 				};
@@ -149,7 +215,7 @@ function CommandEntry:Render(props)
 					Text = self._groupName;
 					TextColor3 = foregroundColor;
 					TextSize = 15;
-					TextTransparency = props.Transparency;
+					TextTransparency = transparency;
 					TextWrapped = true;
 					TextXAlignment = Enum.TextXAlignment.Left;
 				};
@@ -180,12 +246,19 @@ function CommandEntry:Render(props)
 					LayoutOrder = 2;
 					RichText = true;
 					Size = UDim2.new(1, 0, 0, 15);
-					Text = self._macroName;
 					TextColor3 = Color3.fromRGB(255, 255, 255);
 					TextSize = 15;
-					TextTransparency = props.Transparency;
+					TextTransparency = transparency;
 					TextWrapped = true;
 					TextXAlignment = Enum.TextXAlignment.Left;
+
+					Text = Blend.Computed(self._macroName, props.SearchQuery, function(macroName, searchQuery)
+						if searchQuery ~= "" then
+							return self:_getMatchedString(fzyConfig, macroName, searchQuery)
+						else
+							return macroName
+						end
+					end);
 				};
 
 				Blend.New "TextLabel" {
@@ -195,12 +268,19 @@ function CommandEntry:Render(props)
 					LayoutOrder = 2;
 					RichText = true;
 					Size = UDim2.new(1, 0, 0, 15);
-					Text = self._macroDescription;
 					TextColor3 = Color3.fromRGB(110, 110, 110);
 					TextSize = 13;
-					TextTransparency = props.Transparency;
+					TextTransparency = transparency;
 					TextWrapped = true;
 					TextXAlignment = Enum.TextXAlignment.Left;
+
+					Text = Blend.Computed(self._macroDescription, props.SearchQuery, function(description, searchQuery)
+						if searchQuery ~= "" then
+							return self:_getMatchedString(fzyConfig, description, searchQuery)
+						else
+							return description
+						end
+					end);
 				};
 			};
 
@@ -209,7 +289,7 @@ function CommandEntry:Render(props)
 				BackgroundTransparency = 1;
 				Image = "rbxassetid://6034818365";
 				ImageColor3 = foregroundColor;
-				ImageTransparency = props.Transparency;
+				ImageTransparency = transparency;
 				LayoutOrder = 3;
 				Size = UDim2.fromScale(1, 1);
 				Visible = self._isGroupEntry;
@@ -224,7 +304,7 @@ function CommandEntry:Render(props)
 			Name = "divider";
 			AnchorPoint = Vector2.new(0, 1);
 			BackgroundColor3 = Color3.fromRGB(35, 35, 35);
-			BackgroundTransparency = props.Transparency;
+			BackgroundTransparency = transparency;
 			Position = UDim2.new(0, 0, 1, 2);
 			Size = UDim2.new(1, 0, 0, 1);
 		};
@@ -233,8 +313,16 @@ function CommandEntry:Render(props)
 			Name = "button";
 			BackgroundTransparency = 1;
 			Size = UDim2.fromScale(1, 1);
-			Visible = false;
+			Visible = self:ObserveVisible();
 			ZIndex = 5;
+
+			[Blend.OnEvent "Activated"] = function()
+				self.Activated:Fire()
+			end;
+
+			[Blend.Instance] = function(button)
+				self._model:SetButton(button)
+			end;
 		};
 
 		Blend.New "Frame" {
@@ -242,7 +330,7 @@ function CommandEntry:Render(props)
 			AnchorPoint = Vector2.new(1, 0.5);
 			AutomaticSize = Enum.AutomaticSize.X;
 			BackgroundColor3 = Color3.fromRGB(50, 50, 50);
-			BackgroundTransparency = props.Transparency;
+			BackgroundTransparency = transparency;
 			LayoutOrder = 3;
 			Position = UDim2.new(1, -7, 0.5, 0);
 			Size = UDim2.fromOffset(0, 20);
@@ -261,7 +349,7 @@ function CommandEntry:Render(props)
 
 			Blend.New "UIStroke" {
 				Color = Color3.fromRGB(35, 35, 35);
-				Transparency = props.Transparency;
+				Transparency = transparency;
 			};
 
 			Blend.New "TextLabel" {
@@ -274,7 +362,7 @@ function CommandEntry:Render(props)
 				Size = UDim2.fromOffset(0, 14);
 				Text = "Space";
 				TextColor3 = Color3.fromRGB(110, 110, 110);
-				TextTransparency = props.Transparency;
+				TextTransparency = transparency;
 			};
 		};
 	}

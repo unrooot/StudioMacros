@@ -17,6 +17,7 @@ function CommandGroup.new()
 	local self = setmetatable(BasicPane.new(), CommandGroup)
 
 	self._entries = self._maid:Add(ObservableList.new())
+	self._groupCollapsed = self._maid:Add(ValueObject.new(false))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
@@ -39,6 +40,10 @@ function CommandGroup:SetHeader(name: string, icon: string)
 	entry:SetGroupIcon(icon)
 
 	self._maid:GiveTask(self._entries:Add(entry))
+
+	self._maid:GiveTask(entry:ObserveIsCollapsed():Subscribe(function(isCollapsed)
+		self._groupCollapsed.Value = isCollapsed
+	end))
 end
 
 function CommandGroup:AddEntry(macroData)
@@ -70,7 +75,7 @@ function CommandGroup:Render(props)
 		local entryCount = math.max(1, #entries)
 
 		for index, entry in entries do
-			local progress = (index - 1) / entryCount + 1e-1
+			local progress = (index - 1) / entryCount + 1e-2
 			entry:SetVisible(progress <= percent)
 		end
 	end):Subscribe())
@@ -94,6 +99,8 @@ function CommandGroup:Render(props)
 		self._entries:ObserveItemsBrio():Pipe({
 			RxBrioUtils.map(function(entry)
 				return entry:Render({
+					FzyConfig = props.FzyConfig;
+					SearchQuery = props.SearchQuery;
 					Transparency = transparency;
 				})
 			end);

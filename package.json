@@ -13,6 +13,7 @@
     "@quenty/blend": "^12.17.0",
     "@quenty/brio": "^14.16.0",
     "@quenty/buttonhighlightmodel": "^14.17.0",
+    "@quenty/fzy": "^5.8.0",
     "@quenty/loader": "^10.8.0",
     "@quenty/observablecollection": "^12.19.0",
     "@quenty/rx": "^13.16.0",

@@ -6,10 +6,13 @@ local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
 local CommandGroup = require("CommandGroup")
+local Fzy = require("Fzy")
 local ObservableList = require("ObservableList")
 local Rx = require("Rx")
 local RxBrioUtils = require("RxBrioUtils")
 local ValueObject = require("ValueObject")
+
+local FZY_CONFIG = Fzy.createConfig()
 
 local CommandPalette = setmetatable({}, BasicPane)
 CommandPalette.ClassName = "CommandPalette"
@@ -19,8 +22,10 @@ function CommandPalette.new()
 	local self = setmetatable(BasicPane.new(), CommandPalette)
 
 	self._entries = self._maid:Add(ObservableList.new())
+	self._inputFocused = self._maid:Add(ValueObject.new(false))
 	self._inputModel = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._searchQuery = self._maid:Add(ValueObject.new(""))
 
 	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
 		if input.KeyCode == Enum.KeyCode.Escape then
@@ -59,10 +64,10 @@ end
 function CommandPalette:Render(props)
 	local target = self._percentVisibleTarget:Observe()
 
-	local percentVisible = Blend.Spring(target, 40, 1)
+	local percentVisible = Blend.Spring(target, 50, 0.9)
 	local percentAlpha = Blend.AccelTween(target, target:Pipe({
 		Rx.map(function(value)
-			return value == 1 and 400 or 1000
+			return value == 1 and 400 or 2000
 		end)
 	}))
 
@@ -103,7 +108,7 @@ function CommandPalette:Render(props)
 						percent = 1
 					end
 
-					return 0.85 + (percent * 0.15)
+					return 0.9 + (percent * 0.1)
 				end);
 			};
 
@@ -214,6 +219,18 @@ function CommandPalette:Render(props)
 							[Blend.Instance] = function(input)
 								self._input = input
 							end;
+
+							[Blend.OnChange "Text"] = function(text)
+								self._searchQuery.Value = string.gsub(text, "%s+", " ")
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self._inputFocused.Value = true
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function()
+								self._inputFocused.Value = false
+							end;
 						};
 
 						Blend.New "ImageLabel" {
@@ -236,11 +253,22 @@ function CommandPalette:Render(props)
 						Name = "button";
 						BackgroundTransparency = 1;
 						Size = UDim2.fromScale(1, 1);
-						Visible = self:ObserveVisible();
 						ZIndex = 5;
+
+						Visible = Blend.Computed(self:ObserveVisible(), self._inputFocused, function(isVisible, isFocused)
+							if not isVisible then
+								return false
+							else
+								return not isFocused
+							end
+						end);
 
 						[Blend.Instance] = function(button)
 							self._inputModel:SetButton(button)
+						end;
+
+						[Blend.OnEvent "Activated"] = function()
+							self._input:CaptureFocus()
 						end;
 					};
 				};
@@ -269,7 +297,7 @@ function CommandPalette:Render(props)
 						Size = UDim2.fromScale(1, 1);
 
 						CanvasSize = Blend.Computed(contentHeight, function(contentHeight)
-							return UDim2.fromOffset(0, contentHeight);
+							return UDim2.fromOffset(0, contentHeight + 2);
 						end);
 
 						[Blend.OnChange "AbsoluteWindowSize"] = function(windowSize)
@@ -277,7 +305,9 @@ function CommandPalette:Render(props)
 						end;
 
 						Blend.New "UIPadding" {
+							PaddingBottom = UDim.new(0, 4);
 							PaddingLeft = UDim.new(0, 1);
+							PaddingTop = UDim.new(0, 1);
 
 							PaddingRight = Blend.Computed(contentHeight, windowHeight, function(content, window)
 								if content > window then
@@ -298,7 +328,10 @@ function CommandPalette:Render(props)
 
 						self._entries:ObserveItemsBrio():Pipe({
 							RxBrioUtils.map(function(groupEntry)
-								return groupEntry:Render()
+								return groupEntry:Render({
+									FzyConfig = FZY_CONFIG;
+									SearchQuery = self._searchQuery;
+								})
 							end);
 						});
 					};
