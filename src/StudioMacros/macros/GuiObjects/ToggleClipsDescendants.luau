@@ -1,6 +1,6 @@
 return {
-	Name = "Toggle ClipsDecendants";
-	Description = "Toggle ClipsDecendants on an object.";
+	Name = "Toggle ClipsDescendants";
+	Description = "Toggle ClipsDescendants on an object.";
 
 	Predicate = function(gui)
 		return gui:IsA("GuiObject")
