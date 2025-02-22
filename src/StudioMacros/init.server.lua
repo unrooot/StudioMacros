@@ -9,6 +9,8 @@ local Blend = require("Blend")
 local CommandGroup = require("CommandGroup")
 local CommandPalette = require("CommandPalette")
 local Maid = require("Maid")
+local RxInstanceUtils = require("RxInstanceUtils")
+local ValueObject = require("ValueObject")
 
 local function initialize(plugin)
 	local maid = Maid.new()
@@ -22,6 +24,8 @@ local function initialize(plugin)
 
 		pane:Render();
 	}:Subscribe())
+
+	local uiEditorVisible = maid:Add(ValueObject.new(plugin:GetSetting("UIEditorDisabled") or true))
 
 	local toggleCommand = plugin:CreatePluginAction(
 		"StudioMacros Commands",
@@ -39,7 +43,7 @@ local function initialize(plugin)
 		maid:Destroy()
 	end))
 
-	for _, group in script.macros:GetChildren() do
+	for index, group in script.macros:GetChildren() do
 		if group:IsA("Folder") then
 			local groupData = group:FindFirstChild("GroupData")
 			if not groupData then
@@ -47,6 +51,10 @@ local function initialize(plugin)
 			end
 
 			local groupEntry = pane:AddGroup(require(groupData))
+
+			if index ~= 1 then
+				groupEntry:SetIsCollapsed(true)
+			end
 
 			for _, macro in group:GetChildren() do
 				if macro.Name == "GroupData" or not macro:IsA("ModuleScript") then
@@ -65,52 +73,70 @@ local function initialize(plugin)
 				local macroEntry = groupEntry:AddEntry(macroData)
 
 				if macro.Name == "ToggleUIEditor" then
-					maid:GiveTask(task.spawn(function()
-						local editor = CoreGui:WaitForChild("RobloxGUIEditor")
-
-						local function refreshEditor()
-							for _, descendant in editor:GetDescendants() do
-								if descendant:IsA("ScreenGui") then
-									descendant.Enabled = not plugin:GetSetting("UIEditorDisabled")
-								end
+					maid:GiveTask(RxInstanceUtils.observeLastNamedChildBrio(CoreGui, "Folder", "RobloxGUIEditor")
+						:Subscribe(function(editorBrio)
+							if editorBrio:IsDead() then
+								return
 							end
-						end
 
-						local function bind(object)
-							if object:IsA("ScreenGui") then
-								object.Enabled = not plugin:GetSetting("UIEditorDisabled")
+							local editor = editorBrio:GetValue()
 
-								maid:GiveTask(object.Changed:Connect(function()
-									object.Enabled = not plugin:GetSetting("UIEditorDisabled")
+							editorBrio:ToMaid():GiveTask(RxInstanceUtils.observeDescendantsOfClassBrio(editor, "ScreenGui")
+								:Subscribe(function(screenGuiBrio)
+									if screenGuiBrio:IsDead() then
+										return
+									end
+
+									local screenGui = screenGuiBrio:GetValue()
+
+									screenGuiBrio:ToMaid():GiveTask(uiEditorVisible:Observe():Subscribe(function(isVisible)
+										task.defer(function()
+											screenGui.Enabled = isVisible
+										end)
+									end))
 								end))
+						end))
+
+					maid:GiveTask(RxInstanceUtils.observeLastNamedChildBrio(CoreGui, "ScreenGui", "RobloxGui")
+						:Subscribe(function(screenGuiBrio)
+							if screenGuiBrio:IsDead() then
+								return
 							end
-						end
 
-						maid:GiveTask(editor.DescendantAdded:Connect(bind))
+							local screenGui = screenGuiBrio:GetValue()
 
-						for _, descendant in editor:GetDescendants() do
-							bind(descendant)
-						end
-					end))
+							screenGuiBrio:ToMaid():GiveTask(uiEditorVisible:Observe():Subscribe(function(isVisible)
+								screenGui.Enabled = isVisible
+							end))
+						end))
 				end
 
 				local function activated()
+					if macroEntry:IsGroupHeader() then
+						return
+					end
+
 					local selectedInstance = Selection:Get()[1]
-					local newInstance = macroData.Function(selectedInstance, plugin)
+					if macroData.Predicate then
+						local validInstance = macroData.Predicate(selectedInstance)
+						if not validInstance then
+							print(macroData.Name, "failed predicate", selectedInstance)
+							return
+						else
+							print("passed predicate", selectedInstance)
+						end
+					end
+
+					local newInstance = macroData.Macro(selectedInstance, plugin)
+
+					if macro.Name == "ToggleUIEditor" then
+						uiEditorVisible.Value = not uiEditorVisible.Value
+					end
+
+					pane:Hide()
 
 					if newInstance then
 						Selection:Set({ newInstance })
-					end
-
-					if macro.Name == "ToggleUIEditor" then
-						local editor = CoreGui:FindFirstChild("RobloxGUIEditor")
-						if editor then
-							for _, descendant in editor:GetDescendants() do
-								if descendant:IsA("ScreenGui") then
-									descendant.Enabled = not plugin:GetSetting("UIEditorDisabled")
-								end
-							end
-						end
 					end
 				end
 

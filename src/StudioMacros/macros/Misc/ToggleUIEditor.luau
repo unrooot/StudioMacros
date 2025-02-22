@@ -6,7 +6,6 @@ return {
 
 	Macro = function(_, plugin)
         disabled = plugin:GetSetting("UIEditorDisabled") or false
-        disabled = not disabled
-        plugin:SetSetting("UIEditorDisabled", disabled)
+        plugin:SetSetting("UIEditorDisabled", not disabled)
 	end;
 }
