@@ -148,23 +148,37 @@ local function initialize(plugin)
 						revertSelection = true
 					end
 
-					for _, selectedInstance in selectedInstances do
-						if macroData.Predicate then
-							local validInstance = macroData.Predicate(selectedInstance)
-							if not validInstance then
-								print(macroData.Name, "failed predicate", selectedInstance)
-								continue
+					if #selectedInstances > 0 then
+						for _, selectedInstance in selectedInstances do
+							if macroData.Predicate then
+								local validInstance = macroData.Predicate(selectedInstance)
+								if not validInstance then
+									print(macroData.Name, "failed predicate", selectedInstance)
+									continue
+								end
+							end
+
+							local newInstance = macroData.Macro(selectedInstance, plugin)
+
+							if not leavePaneOpen then
+								pane:Hide()
+							end
+
+							if newInstance then
+								table.insert(newSelection, newInstance)
 							end
 						end
+					else
+						if not macroData.Predicate then
+							local newInstance = macroData.Macro(nil, plugin)
 
-						local newInstance = macroData.Macro(selectedInstance, plugin)
+							if not leavePaneOpen then
+								pane:Hide()
+							end
 
-						if not leavePaneOpen then
-							pane:Hide()
-						end
-
-						if newInstance then
-							table.insert(newSelection, newInstance)
+							if newInstance then
+								table.insert(newSelection, newInstance)
+							end
 						end
 					end
 
