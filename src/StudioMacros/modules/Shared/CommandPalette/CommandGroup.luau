@@ -29,20 +29,24 @@ function CommandGroup.new()
 	return self
 end
 
+function CommandGroup:SetIsCollapsed(isCollapsed: boolean)
+	self._groupCollapsed.Value = isCollapsed
+end
+
 function CommandGroup:SetHeader(name: string, icon: string)
 	if not name or not icon then
 		return
 	end
 
 	local entry = self._maid:Add(CommandEntry.new())
-	entry:SetIsGroupEntry(true)
+	entry:SetIsGroupHeader(true)
 	entry:SetGroupName(name)
 	entry:SetGroupIcon(icon)
 
 	self._maid:GiveTask(self._entries:Add(entry))
 
-	self._maid:GiveTask(entry:ObserveIsCollapsed():Subscribe(function(isCollapsed)
-		self._groupCollapsed.Value = isCollapsed
+	self._maid:GiveTask(entry.Activated:Connect(function()
+		self._groupCollapsed.Value = not self._groupCollapsed.Value
 	end))
 end
 
@@ -100,6 +104,7 @@ function CommandGroup:Render(props)
 			RxBrioUtils.map(function(entry)
 				return entry:Render({
 					FzyConfig = props.FzyConfig;
+					GroupCollapsed = self._groupCollapsed;
 					SearchQuery = props.SearchQuery;
 					Transparency = transparency;
 				})

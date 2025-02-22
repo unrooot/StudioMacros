@@ -15,11 +15,10 @@ CommandEntry.__index = CommandEntry
 function CommandEntry.new()
 	local self = setmetatable(BasicPane.new(), CommandEntry)
 
-	self._groupCollapsed = self._maid:Add(ValueObject.new(false))
 	self._groupIcon = self._maid:Add(ValueObject.new(""))
 	self._groupName = self._maid:Add(ValueObject.new(""))
 	self._groupVisible = self._maid:Add(ValueObject.new(false))
-	self._isGroupEntry = self._maid:Add(ValueObject.new(false))
+	self._isGroupHeader = self._maid:Add(ValueObject.new(false))
 	self._macroDescription = self._maid:Add(ValueObject.new(""))
 	self._macroName = self._maid:Add(ValueObject.new(""))
 	self._model = self._maid:Add(ButtonHighlightModel.new())
@@ -36,12 +35,12 @@ function CommandEntry.new()
 	return self
 end
 
-function CommandEntry:ObserveIsCollapsed()
-	return self._groupCollapsed:Observe()
+function CommandEntry:SetIsGroupHeader(isGroupHeader: boolean)
+	self._isGroupHeader.Value = isGroupHeader
 end
 
-function CommandEntry:SetIsGroupEntry(isGroupEntry: boolean)
-	self._isGroupEntry.Value = isGroupEntry
+function CommandEntry:IsGroupHeader()
+	return self._isGroupHeader.Value
 end
 
 function CommandEntry:SetGroupVisible(isVisible: boolean)
@@ -127,12 +126,14 @@ function CommandEntry:Render(props)
 	local fzyConfig = props.FzyConfig
 	local transparency = props.Transparency
 
+	local groupCollapsed = props.GroupCollapsed
+
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
 		Size = UDim2.new(1, 0, 0, 45);
 
-		Visible = Blend.Computed(self._isGroupEntry, self._groupCollapsed, function(isGroupEntry, isCollapsed)
+		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, function(isGroupEntry, isCollapsed)
 			if isGroupEntry then
 				return true
 			else
@@ -140,7 +141,7 @@ function CommandEntry:Render(props)
 			end
 		end);
 
-		LayoutOrder = self._isGroupEntry:Observe():Pipe({
+		LayoutOrder = self._isGroupHeader:Observe():Pipe({
 			Rx.map(function(isGroupEntry)
 				return isGroupEntry and -1 or 0
 			end)
@@ -151,8 +152,8 @@ function CommandEntry:Render(props)
 			BackgroundColor3 = Color3.fromRGB(50, 50, 50);
 			Size = UDim2.fromScale(1, 1);
 
-			BackgroundTransparency = Blend.Computed(percentHighlighted, function(percent)
-				return 1 - percent
+			BackgroundTransparency = Blend.Computed(transparency, percentHighlighted, function(percent, percentHighlight)
+				return 1 - percentHighlight + percent
 			end);
 
 			Blend.New "UIListLayout" {
@@ -167,7 +168,7 @@ function CommandEntry:Render(props)
 				PaddingRight = UDim.new(0, 7);
 				PaddingTop = UDim.new(0, 14);
 
-				PaddingLeft = Blend.Computed(self._isGroupEntry, self._groupVisible, function(isGroupEntry, groupVisible)
+				PaddingLeft = Blend.Computed(self._isGroupHeader, self._groupVisible, function(isGroupEntry, groupVisible)
 					return UDim.new(0, not isGroupEntry and not groupVisible and 30 or 7)
 				end);
 			};
@@ -187,7 +188,7 @@ function CommandEntry:Render(props)
 				Name = "group";
 				BackgroundTransparency = 1;
 				Size = UDim2.fromScale(0.5, 1);
-				Visible = self._isGroupEntry;
+				Visible = self._isGroupHeader;
 
 				Blend.New "UIListLayout" {
 					FillDirection = Enum.FillDirection.Horizontal;
@@ -228,7 +229,7 @@ function CommandEntry:Render(props)
 				Position = UDim2.fromScale(0.081324, 0);
 				Size = UDim2.fromScale(0.851873, 1);
 
-				Visible = self._isGroupEntry:Observe():Pipe({
+				Visible = self._isGroupHeader:Observe():Pipe({
 					Rx.map(function(isGroupEntry)
 						return not isGroupEntry
 					end)
@@ -284,18 +285,28 @@ function CommandEntry:Render(props)
 				};
 			};
 
-			Blend.New "ImageLabel" {
-				Name = "arrow";
+			Blend.New "Frame" {
+				Name = "collapsed";
 				BackgroundTransparency = 1;
-				Image = "rbxassetid://6034818365";
-				ImageColor3 = foregroundColor;
-				ImageTransparency = transparency;
-				LayoutOrder = 3;
 				Size = UDim2.fromScale(1, 1);
-				Visible = self._isGroupEntry;
 
 				Blend.New "UIAspectRatioConstraint" {
 					AspectRatio = 1;
+				};
+
+				Blend.New "ImageLabel" {
+					Name = "arrow";
+					BackgroundTransparency = 1;
+					Image = "rbxassetid://6034818365";
+					ImageColor3 = foregroundColor;
+					ImageTransparency = transparency;
+					LayoutOrder = 3;
+					Size = UDim2.fromScale(1, 1);
+					Visible = self._isGroupHeader;
+
+					Rotation = Blend.Computed(groupCollapsed, function(isCollapsed)
+						return isCollapsed and 0 or 90
+					end);
 				};
 			};
 		};

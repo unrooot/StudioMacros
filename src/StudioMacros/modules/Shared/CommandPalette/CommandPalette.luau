@@ -25,6 +25,7 @@ function CommandPalette.new()
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
 	self._inputModel = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._searchEntries = self._maid:Add(ObservableList.new())
 	self._searchQuery = self._maid:Add(ValueObject.new(""))
 
 	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
@@ -88,6 +89,20 @@ function CommandPalette:Render(props)
 	local contentHeight = self._maid:Add(Blend.State(0))
 	local windowHeight = self._maid:Add(Blend.State(0))
 
+	local scrollThicknessTarget = Blend.Computed(contentHeight, windowHeight, function(content, window)
+		if not self:IsVisible() then
+			return
+		end
+
+		return content > window and 1 or 0
+	end)
+
+	local percentScrollThickness = Blend.AccelTween(scrollThicknessTarget, 500)
+
+	local containerPercent = Blend.Spring(Blend.Computed(contentHeight, windowHeight, function(content, window)
+		return math.min(content + 92, window)
+	end), 30, 1);
+
 	return Blend.New "Frame" {
 		Name = "CommandPalette";
 		AnchorPoint = Vector2.new(0.5, 0.5);
@@ -95,12 +110,23 @@ function CommandPalette:Render(props)
 		Position = UDim2.fromScale(0.5, 0.5);
 		Size = UDim2.fromScale(0.4, 0.75);
 
+		[Blend.OnChange "AbsoluteSize"] = function(windowSize)
+			windowHeight.Value = math.round(windowSize.Y) - 90
+		end;
+
 		Blend.New "Frame" {
 			Name = "wrapper";
-			AnchorPoint = Vector2.new(0.5, 0.5);
+			AnchorPoint = Vector2.new(0.5, 0);
 			BackgroundTransparency = 1;
-			Position = UDim2.fromScale(0.5, 0.5);
-			Size = UDim2.fromScale(1, 1);
+			Position = UDim2.fromScale(0.5, 0);
+
+			Size = Blend.Computed(containerPercent, contentHeight, windowHeight, function(percent, content, window)
+				if content > window then
+					return UDim2.fromScale(1, 1)
+				end
+
+				return UDim2.new(1, 0, 0, math.min(percent, window));
+			end);
 
 			Blend.New "UIScale" {
 				Scale = Blend.Computed(percentVisible, function(percent)
@@ -292,17 +318,22 @@ function CommandPalette:Render(props)
 						BackgroundTransparency = 1;
 						ScrollBarImageColor3 = Color3.fromRGB(50, 50, 50);
 						ScrollBarImageTransparency = transparency;
-						ScrollBarThickness = 10;
 						ScrollingDirection = Enum.ScrollingDirection.Y;
+						ScrollingEnabled = self:ObserveVisible();
 						Size = UDim2.fromScale(1, 1);
+						VerticalScrollBarInset = Enum.ScrollBarInset.Always;
 
 						CanvasSize = Blend.Computed(contentHeight, function(contentHeight)
 							return UDim2.fromOffset(0, contentHeight + 2);
 						end);
 
-						[Blend.OnChange "AbsoluteWindowSize"] = function(windowSize)
-							windowHeight.Value = math.round(windowSize.Y)
-						end;
+						ScrollBarThickness = Blend.Computed(percentScrollThickness, function(percent)
+							return 10 * percent
+						end);
+
+						Visible = Blend.Computed(percentVisible, function(percent)
+							return percent > 0.01
+						end);
 
 						Blend.New "UIPadding" {
 							PaddingBottom = UDim.new(0, 4);
@@ -310,11 +341,7 @@ function CommandPalette:Render(props)
 							PaddingTop = UDim.new(0, 1);
 
 							PaddingRight = Blend.Computed(contentHeight, windowHeight, function(content, window)
-								if content > window then
-									return UDim.new(0, 15)
-								else
-									return UDim.new(0, 1)
-								end
+								return UDim.new(0, content > window and 5 or 1)
 							end);
 						};
 
@@ -322,6 +349,10 @@ function CommandPalette:Render(props)
 							HorizontalAlignment = Enum.HorizontalAlignment.Center;
 
 							[Blend.OnChange "AbsoluteContentSize"] = function(size)
+								if not self:IsVisible() then
+									return
+								end
+
 								contentHeight.Value = math.round(size.Y)
 							end;
 						};
