@@ -123,8 +123,8 @@ function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
 end
 
 function CommandEntry:SetIsSelected(isSelected: boolean)
-	self._model._isMouseOver.Value = isSelected
 	self._model:SetIsChoosen(isSelected)
+	self._model._isMouseOver.Value = isSelected
 end
 
 function CommandEntry:Render(props)
@@ -151,6 +151,20 @@ function CommandEntry:Render(props)
 
 		self.SearchScore.Value = Fzy.score(fzyConfig, searchQuery, string.lower(`{name} {description}`))
 	end):Subscribe())
+
+	self._maid:GiveTask(self._model:ObserveIsMouseOrTouchOver():Subscribe(function(isHovered)
+		if isHovered then
+			return
+		end
+
+		if not isHovered then
+			if self._model:IsChoosen() then
+				self._model._isMouseOver.Value = true
+			else
+				self._model._isMouseOver.Value = false
+			end
+		end
+	end))
 
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
@@ -356,11 +370,14 @@ function CommandEntry:Render(props)
 					LayoutOrder = 2;
 					RichText = true;
 					Size = UDim2.new(1, 0, 0, 15);
-					TextColor3 = Color3.fromRGB(110, 110, 110);
 					TextSize = 13;
 					TextTransparency = transparency;
 					TextWrapped = true;
 					TextXAlignment = Enum.TextXAlignment.Left;
+
+					TextColor3 = Blend.Computed(percentSelected, function(percent)
+						return Color3.fromRGB(110, 110, 110):Lerp(Color3.fromRGB(255, 255, 255), percent)
+					end);
 
 					Text = Blend.Computed(self._macroDescription, props.SearchQuery, function(description, searchQuery)
 						if searchQuery ~= "" then
