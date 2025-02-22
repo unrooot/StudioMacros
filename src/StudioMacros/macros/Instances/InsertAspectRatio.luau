@@ -9,5 +9,7 @@ return {
 	Macro = function(gui)
 		local aspectRatio = Instance.new("UIAspectRatioConstraint")
 		aspectRatio.Parent = gui
+
+		return aspectRatio
 	end;
 }

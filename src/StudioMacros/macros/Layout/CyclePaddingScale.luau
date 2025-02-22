@@ -7,7 +7,8 @@ return {
 	end;
 
 	Macro = function(gui)
-		local padding = gui.PaddingLeft.Offset
+		local width = gui.Parent.AbsoluteSize.X
+		local padding = math.round(width * gui.PaddingLeft.Scale)
 
 		if padding == 5 then
 			padding = 10

@@ -3,7 +3,7 @@ return {
 	Description = "Insert a ScrollingFrame to the selected object.";
 
 	Predicate = function(gui)
-		return gui:IsA("GuiObject")
+		return gui ~= nil
 	end;
 
 	Macro = function(gui)

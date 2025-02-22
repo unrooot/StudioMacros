@@ -9,5 +9,7 @@ return {
 	Macro = function(gui)
 		local gradient = Instance.new("UIGradient")
 		gradient.Parent = gui
+
+		return gradient
 	end;
 }

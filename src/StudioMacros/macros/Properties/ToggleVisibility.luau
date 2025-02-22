@@ -3,7 +3,7 @@ return {
 	Description = "Toggle the object's visibility.";
 
 	Predicate = function(gui)
-		return gui:IsA("GuiObject") or gui:IsA("ScreenGui")
+		return gui ~= nil and (gui:IsA("GuiObject") or gui:IsA("ScreenGui"))
 	end;
 
 	Macro = function(gui)

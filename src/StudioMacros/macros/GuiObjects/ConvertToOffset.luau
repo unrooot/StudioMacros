@@ -7,7 +7,7 @@ return {
 	end;
 
 	Macro = function(gui)
-		local currentSize = gui.AbsoluteSize
+		local currentSize = gui.Size
 		local parent = gui.Parent
 
 		local bounds
@@ -17,6 +17,6 @@ return {
 			bounds = parent.AbsoluteSize
 		end
 
-		gui.Size = UDim2.fromOffset(currentSize.X * bounds.X, currentSize.Y * bounds.Y)
+		gui.Size = UDim2.fromOffset(currentSize.X.Scale * bounds.X, currentSize.Y.Scale * bounds.Y)
 	end;
 }
