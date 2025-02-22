@@ -4,6 +4,7 @@ local require = require(loader).bootstrapPlugin(modules)
 
 local CoreGui = game:GetService("CoreGui")
 local Selection = game:GetService("Selection")
+local UserInputService = game:GetService("UserInputService")
 
 local Blend = require("Blend")
 local CommandGroup = require("CommandGroup")
@@ -112,7 +113,7 @@ local function initialize(plugin)
 						end))
 				end
 
-				local function activated()
+				local function activated(leavePaneOpen: boolean?)
 					if macroEntry:IsGroupHeader() then
 						return
 					end
@@ -134,7 +135,9 @@ local function initialize(plugin)
 						uiEditorVisible.Value = not uiEditorVisible.Value
 					end
 
-					pane:Hide()
+					if not leavePaneOpen then
+						pane:Hide()
+					end
 
 					if newInstance then
 						Selection:Set({ newInstance })

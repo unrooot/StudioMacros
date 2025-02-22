@@ -26,6 +26,7 @@ function CommandPalette.new()
 	local self = setmetatable(BasicPane.new(), CommandPalette)
 
 	self._entries = self._maid:Add(ObservableList.new())
+	self._entryHeight = self._maid:Add(ValueObject.new(45))
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
 	self._inputModel = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
@@ -116,6 +117,12 @@ function CommandPalette:AddGroup(groupData)
 		end
 
 		local maid, entry = entryBrio:ToMaidAndValue()
+		if not entry then
+			return
+		end
+
+		entry:SetGroupIcon(groupData.Icon)
+		entry:SetGroupName(groupData.Name)
 
 		maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
 			if scoreBrio:IsDead() then
@@ -286,7 +293,7 @@ function CommandPalette:Render(props)
 			local frameSize = self._entriesFrame.AbsoluteSize.Y
 
 			local entryPosition = entry:GetYPosition() - framePosition
-			local entrySize = 45
+			local entrySize = self._entryHeight.Value
 			local entryBottom = entryPosition + entrySize
 
 			if entryPosition < canvasPosition then
@@ -311,6 +318,10 @@ function CommandPalette:Render(props)
 		[Blend.OnChange "AbsoluteSize"] = function(windowSize)
 			windowHeight.Value = math.round(windowSize.Y) - 90
 		end;
+
+		Blend.New "UISizeConstraint" {
+			MinSize = Vector2.new(500, 0);
+		};
 
 		Blend.New "Frame" {
 			Name = "wrapper";
@@ -467,6 +478,7 @@ function CommandPalette:Render(props)
 							[Blend.OnEvent "FocusLost"] = function(enterPressed)
 								local selectedEntry = self._selectedEntry.Value
 								local refocusInput = false
+								local shiftPressed = false
 
 								if enterPressed and selectedEntry then
 									if selectedEntry:IsGroupHeader() then
@@ -480,7 +492,18 @@ function CommandPalette:Render(props)
 										groupEntry:SetIsCollapsed(not groupEntry:IsCollapsed())
 										refocusInput = true
 									else
-										selectedEntry.Activated:Fire()
+										-- Hold shift to trigger without closing the palette
+										for _, inputObject in UserInputService:GetKeysPressed() do
+											if inputObject.KeyCode == Enum.KeyCode.LeftShift then
+												shiftPressed = true
+												break
+											end
+										end
+
+										selectedEntry.Activated:Fire(shiftPressed)
+										if shiftPressed then
+											refocusInput = true
+										end
 									end
 								end
 
@@ -600,6 +623,7 @@ function CommandPalette:Render(props)
 						self._entries:ObserveItemsBrio():Pipe({
 							RxBrioUtils.map(function(groupEntry)
 								return groupEntry:Render({
+									EntryHeight = self._entryHeight;
 									FzyConfig = FZY_CONFIG;
 									SearchQuery = self._searchQuery;
 									TargetParent = self._targetEntryParent;

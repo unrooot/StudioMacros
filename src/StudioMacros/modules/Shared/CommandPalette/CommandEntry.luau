@@ -155,7 +155,6 @@ function CommandEntry:Render(props)
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
-		Size = UDim2.new(1, 0, 0, 45);
 		Parent = props.TargetParent;
 
 		LayoutOrder = Blend.Computed(self._isGroupHeader, self.SearchScore, self._defaultIndex, function(isGroupHeader, score, defaultIndex)
@@ -164,6 +163,10 @@ function CommandEntry:Render(props)
 			end
 
 			return score and -(score * 10000) or defaultIndex
+		end);
+
+		Size = Blend.Computed(props.EntryHeight, function(height)
+			return UDim2.new(1, 0, 0, height)
 		end);
 
 		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, function(isGroupEntry, isCollapsed, searchQuery, searchScore)
@@ -176,6 +179,10 @@ function CommandEntry:Render(props)
 					return not isCollapsed
 				end
 			end
+		end);
+
+		ZIndex = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
+			return score and -(score * 10000) or defaultIndex
 		end);
 
 		[Blend.OnChange "AbsolutePosition"] = function(position)
@@ -207,8 +214,16 @@ function CommandEntry:Render(props)
 				PaddingRight = UDim.new(0, 7);
 				PaddingTop = UDim.new(0, 14);
 
-				PaddingLeft = Blend.Computed(self._isGroupHeader, self._groupVisible, function(isGroupEntry, groupVisible)
-					return UDim.new(0, not isGroupEntry and not groupVisible and 30 or 7)
+				PaddingLeft = Blend.Computed(self._isGroupHeader, self._groupVisible, props.SearchQuery, function(isGroupEntry, groupVisible, searchQuery)
+					if not isGroupEntry then
+						if searchQuery ~= "" then
+							return UDim.new(0, 7)
+						else
+							return UDim.new(0, not groupVisible and 30 or 7)
+						end
+					else
+						return UDim.new(0, 7)
+					end
 				end);
 			};
 
@@ -226,8 +241,19 @@ function CommandEntry:Render(props)
 			Blend.New "Frame" {
 				Name = "group";
 				BackgroundTransparency = 1;
-				Size = UDim2.fromScale(0.5, 1);
-				Visible = self._isGroupHeader;
+				LayoutOrder = 1;
+
+				Size = Blend.Computed(self._isGroupHeader, props.SearchQuery, function(isGroupHeader)
+					return isGroupHeader and UDim2.fromScale(0.5, 1) or UDim2.fromScale(0.15, 1)
+				end);
+
+				Visible = Blend.Computed(self._isGroupHeader, props.SearchQuery, function(isGroupHeader, searchQuery)
+					if isGroupHeader then
+						return true
+					else
+						return searchQuery ~= ""
+					end
+				end);
 
 				Blend.New "UIListLayout" {
 					FillDirection = Enum.FillDirection.Horizontal;
@@ -261,10 +287,32 @@ function CommandEntry:Render(props)
 				};
 			};
 
+			Blend.New "ImageLabel" {
+				Name = "groupArrow";
+				BackgroundTransparency = 1;
+				Image = "rbxassetid://6034818365";
+				ImageColor3 = foregroundColor;
+				ImageTransparency = transparency;
+				LayoutOrder = 2;
+				Size = UDim2.fromScale(1, 1);
+
+				Visible = Blend.Computed(self._isGroupHeader, props.SearchQuery, function(isGroupHeader, searchQuery)
+					if isGroupHeader then
+						return false
+					else
+						return searchQuery ~= ""
+					end
+				end);
+
+				Blend.New "UIAspectRatioConstraint" {
+					AspectRatio = 1;
+				};
+			};
+
 			Blend.New "Frame" {
 				Name = "container";
 				BackgroundTransparency = 1;
-				LayoutOrder = 2;
+				LayoutOrder = 3;
 				Position = UDim2.fromScale(0.081324, 0);
 				Size = UDim2.fromScale(0.851873, 1);
 
@@ -328,13 +376,14 @@ function CommandEntry:Render(props)
 				Name = "collapsed";
 				BackgroundTransparency = 1;
 				Size = UDim2.fromScale(1, 1);
+				LayoutOrder = 4;
 
 				Blend.New "UIAspectRatioConstraint" {
 					AspectRatio = 1;
 				};
 
 				Blend.New "ImageLabel" {
-					Name = "arrow";
+					Name = "collapseArrow";
 					BackgroundTransparency = 1;
 					Image = "rbxassetid://6034818365";
 					ImageColor3 = foregroundColor;
