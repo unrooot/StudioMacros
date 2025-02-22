@@ -120,6 +120,11 @@ local function initialize(plugin)
 						return
 					end
 
+					local undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
+					if not undoRecording then
+						warn("[StudioMacros]: Failed to begin recording for", macroData.Name)
+					end
+
 					local newSelection = {}
 					local selectedInstances = Selection:Get()
 
@@ -165,6 +170,8 @@ local function initialize(plugin)
 					elseif revertSelection then
 						Selection:Set(selectedInstances)
 					end
+
+					ChangeHistoryService:FinishRecording(undoRecording, Enum.FinishRecordingOperation.Commit)
 				end
 
 				maid:GiveTask(macroEntry.Activated:Connect(activated))
