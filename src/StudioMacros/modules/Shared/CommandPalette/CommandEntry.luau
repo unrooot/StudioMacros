@@ -23,6 +23,7 @@ function CommandEntry.new()
 	self._macroName = self._maid:Add(ValueObject.new(""))
 	self._model = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
 
@@ -61,6 +62,10 @@ end
 
 function CommandEntry:SetDescription(description: string)
 	self._macroDescription.Value = description
+end
+
+function CommandEntry:GetYPosition()
+	return self._yPosition.Value
 end
 
 function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
@@ -112,6 +117,11 @@ function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
 	return finalString
 end
 
+function CommandEntry:SetIsSelected(isSelected: boolean)
+	self._model._isMouseOver.Value = isSelected
+	self._model:SetIsChoosen(isSelected)
+end
+
 function CommandEntry:Render(props)
 	local target = self._percentVisibleTarget:Observe()
 
@@ -146,6 +156,14 @@ function CommandEntry:Render(props)
 				return isGroupEntry and -1 or 0
 			end)
 		});
+
+		[Blend.OnChange "AbsolutePosition"] = function(position)
+			if not self:IsVisible() then
+				return
+			end
+
+			self._yPosition.Value = math.round(position.Y)
+		end;
 
 		Blend.New "Frame" {
 			Name = "wrapper";

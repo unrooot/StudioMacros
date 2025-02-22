@@ -64,6 +64,14 @@ function CommandGroup:AddEntry(macroData)
 	return entry
 end
 
+function CommandGroup:GetEntries()
+	return self._entries:GetList()
+end
+
+function CommandGroup:IsCollapsed()
+	return self._groupCollapsed.Value
+end
+
 function CommandGroup:Render(props)
 	local target = self._percentVisibleTarget:Observe()
 

@@ -1,5 +1,7 @@
 local require = require(script.Parent.loader).load(script)
 
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local BasicPane = require("BasicPane")
@@ -13,6 +15,7 @@ local RxBrioUtils = require("RxBrioUtils")
 local ValueObject = require("ValueObject")
 
 local FZY_CONFIG = Fzy.createConfig()
+local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local CommandPalette = setmetatable({}, BasicPane)
 CommandPalette.ClassName = "CommandPalette"
@@ -27,21 +30,54 @@ function CommandPalette.new()
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._searchEntries = self._maid:Add(ObservableList.new())
 	self._searchQuery = self._maid:Add(ValueObject.new(""))
+	self._selectedEntry = self._maid:Add(ValueObject.new(nil))
+	self._selectedEntryIndex = self._maid:Add(ValueObject.new(0))
+	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
 
-	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
-		if input.KeyCode == Enum.KeyCode.Escape then
-			if self._input.Text == "" then
-				self:Hide()
-			else
-				self._input.Text = ""
-				self._input:CaptureFocus()
-			end
+	self:_handleInput()
+
+	self._maid:GiveTask(Rx.combineLatest({
+		CurrentGroup = self._selectedGroupEntryIndex:Observe();
+		CurrentEntry = self._selectedEntryIndex:Observe();
+	}):Subscribe(function(data)
+		if data.CurrentGroup == 0 then
+			return
 		end
+
+		local groupEntries = self._entries:GetList()
+		local currentGroup = groupEntries[data.CurrentGroup]
+		local currentEntries = currentGroup:GetEntries()
+
+		if data.CurrentEntry == 0 then
+			self._selectedEntry.Value = currentEntries[1]
+		else
+			self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
+		end
+	end))
+
+	self._maid:GiveTask(self._selectedEntry:Observe():Subscribe(function(entry)
+		if self._previousEntry then
+			self._previousEntry:SetIsSelected(false)
+			self._previousEntry = nil
+		end
+
+		if not entry then
+			return
+		end
+
+		entry:SetIsSelected(true)
+		self._previousEntry = entry
 	end))
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		if isVisible and self._input then
 			self._input:CaptureFocus()
+
+			if #self._entries:GetList() > 0 then
+				self._selectedGroupEntryIndex.Value = 1
+				self._selectedEntryIndex.Value = 0
+				print(self._selectedGroupEntryIndex.Value, self._selectedEntryIndex.Value)
+			end
 		end
 
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
@@ -60,6 +96,93 @@ function CommandPalette:AddGroup(groupData)
 	self._maid:GiveTask(self._entries:Add(groupEntry))
 
 	return groupEntry
+end
+
+function CommandPalette:_handleInput()
+	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
+		local keysPressed = UserInputService:GetKeysPressed()
+		local upPressed, downPressed, ctrlPressed = false, false, false
+
+		if input.KeyCode == Enum.KeyCode.Up then
+			upPressed = true
+		elseif input.KeyCode == Enum.KeyCode.Down then
+			downPressed = true
+		end
+
+		-- Ctrl+J/Ctrl+K support
+		for _, inputObject in keysPressed do
+			if inputObject.KeyCode == Enum.KeyCode.LeftControl or inputObject.KeyCode == Enum.KeyCode.RightControl then
+				ctrlPressed = true
+				break
+			end
+		end
+
+		if ctrlPressed then
+			for _, inputObject in keysPressed do
+				if inputObject.KeyCode == Enum.KeyCode.J then
+					downPressed = true
+				elseif inputObject.KeyCode == Enum.KeyCode.K then
+					upPressed = true
+				end
+			end
+		end
+
+		if input.KeyCode == Enum.KeyCode.Escape then
+			if self._input.Text == "" then
+				self:Hide()
+			else
+				self._input.Text = ""
+				self._input:CaptureFocus()
+			end
+		elseif upPressed or downPressed then
+			local selectedEntry = self._selectedEntryIndex.Value
+			local selectedGroup = self._selectedGroupEntryIndex.Value
+			local groupEntries = self._entries:GetList()
+
+			if selectedGroup == 0 and selectedEntry == 0 then
+				if upPressed then
+					-- self._selectedGroupEntryIndex.Value = #groupEntries
+				else
+					self._selectedGroupEntryIndex.Value += 1
+				end
+				return
+			end
+
+			local currentGroup = groupEntries[selectedGroup]
+			if not currentGroup then
+				return
+			end
+
+			local currentGroupEntries = #currentGroup:GetEntries() - 1
+
+			if upPressed then
+				if selectedEntry - 1 >= 0 and not currentGroup:IsCollapsed() then
+					self._selectedEntryIndex.Value -= 1
+				elseif selectedEntry == 0 then
+					if selectedGroup - 1 <= 0 then
+						-- self._selectedGroupEntryIndex.Value = #groupEntries
+						return
+					else
+						self._selectedGroupEntryIndex.Value -= 1
+					end
+
+					local newGroup = groupEntries[self._selectedGroupEntryIndex.Value]
+					if newGroup:IsCollapsed() then
+						self._selectedEntryIndex.Value = 0
+					else
+						self._selectedEntryIndex.Value = #newGroup:GetEntries() - 1
+					end
+				end
+			else
+				if selectedEntry + 1 <= currentGroupEntries and not currentGroup:IsCollapsed() then
+					self._selectedEntryIndex.Value += 1
+				elseif ((selectedEntry + 1 > currentGroupEntries) or currentGroup:IsCollapsed()) and selectedGroup + 1 <= #groupEntries then
+					self._selectedEntryIndex.Value = 0
+					self._selectedGroupEntryIndex.Value += 1
+				end
+			end
+		end
+	end))
 end
 
 function CommandPalette:Render(props)
@@ -102,6 +225,32 @@ function CommandPalette:Render(props)
 	local containerPercent = Blend.Spring(Blend.Computed(contentHeight, windowHeight, function(content, window)
 		return math.min(content + 92, window)
 	end), 30, 1);
+
+	self._maid:GiveTask(Blend.Computed(self._selectedEntry, function(entry)
+		if not self._entriesFrame then
+			return
+		end
+
+		if entry then
+			local canvasPosition = self._entriesFrame.CanvasPosition.Y
+			local framePosition = self._entriesFrame.AbsolutePosition.Y
+			local frameSize = self._entriesFrame.AbsoluteSize.Y
+
+			local entryPosition = entry:GetYPosition() - framePosition
+			local entrySize = 45
+			local entryBottom = entryPosition + entrySize
+
+			if entryPosition < canvasPosition then
+				TweenService:Create(self._entriesFrame, TWEEN_INFO, {
+					CanvasPosition = Vector2.new(0, entryPosition)
+				}):Play()
+			elseif entryBottom > frameSize then
+				TweenService:Create(self._entriesFrame, TWEEN_INFO, {
+					CanvasPosition = Vector2.new(0, canvasPosition + (entryBottom - frameSize) + 1)
+				}):Play()
+			end
+		end
+	end):Subscribe())
 
 	return Blend.New "Frame" {
 		Name = "CommandPalette";
@@ -254,8 +403,34 @@ function CommandPalette:Render(props)
 								self._inputFocused.Value = true
 							end;
 
-							[Blend.OnEvent "FocusLost"] = function()
-								self._inputFocused.Value = false
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								local selectedEntry = self._selectedEntry.Value
+								local refocusInput = false
+
+								if enterPressed and selectedEntry then
+									if selectedEntry:IsGroupHeader() then
+										local selectedGroup = self._selectedGroupEntryIndex.Value
+										local groupEntry = self._entries:GetList()[selectedGroup]
+
+										if not groupEntry then
+											return
+										end
+
+										groupEntry:SetIsCollapsed(not groupEntry:IsCollapsed())
+										refocusInput = true
+									else
+										selectedEntry.Activated:Fire()
+									end
+								end
+
+								if refocusInput then
+									task.spawn(function()
+										RunService.RenderStepped:Wait()
+										self._input:CaptureFocus()
+									end)
+								else
+									self._inputFocused.Value = false
+								end
 							end;
 						};
 
@@ -334,6 +509,10 @@ function CommandPalette:Render(props)
 						Visible = Blend.Computed(percentVisible, function(percent)
 							return percent > 0.01
 						end);
+
+						[Blend.Instance] = function(scrollingFrame)
+							self._entriesFrame = scrollingFrame
+						end;
 
 						Blend.New "UIPadding" {
 							PaddingBottom = UDim.new(0, 4);
