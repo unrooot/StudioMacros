@@ -16,6 +16,7 @@ function CommandEntry.new()
 	local self = setmetatable(BasicPane.new(), CommandEntry)
 
 	self._groupIcon = self._maid:Add(ValueObject.new(""))
+	self._defaultIndex = self._maid:Add(ValueObject.new(0))
 	self._groupName = self._maid:Add(ValueObject.new(""))
 	self._groupVisible = self._maid:Add(ValueObject.new(false))
 	self._isGroupHeader = self._maid:Add(ValueObject.new(false))
@@ -26,11 +27,11 @@ function CommandEntry.new()
 	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
+	self.SearchScore = self._maid:Add(ValueObject.new(0))
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		self._model:SetInteractionEnabled(isVisible)
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
-
 	end))
 
 	return self
@@ -66,6 +67,10 @@ end
 
 function CommandEntry:GetYPosition()
 	return self._yPosition.Value
+end
+
+function CommandEntry:SetDefaultIndex(index: number)
+	self._defaultIndex.Value = index
 end
 
 function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
@@ -138,24 +143,40 @@ function CommandEntry:Render(props)
 
 	local groupCollapsed = props.GroupCollapsed
 
+	self._maid:GiveTask(Blend.Computed(self._macroName, self._macroDescription, props.SearchQuery, function(name, description, searchQuery)
+		if searchQuery == "" then
+			self.SearchScore.Value = nil
+			return
+		end
+
+		self.SearchScore.Value = Fzy.score(fzyConfig, searchQuery, string.lower(`{name} {description}`))
+	end):Subscribe())
+
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
 		Size = UDim2.new(1, 0, 0, 45);
+		Parent = props.TargetParent;
 
-		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, function(isGroupEntry, isCollapsed)
-			if isGroupEntry then
-				return true
-			else
-				return not isCollapsed
+		LayoutOrder = Blend.Computed(self._isGroupHeader, self.SearchScore, self._defaultIndex, function(isGroupHeader, score, defaultIndex)
+			if isGroupHeader then
+				return -1
 			end
+
+			return score and -(score * 10000) or defaultIndex
 		end);
 
-		LayoutOrder = self._isGroupHeader:Observe():Pipe({
-			Rx.map(function(isGroupEntry)
-				return isGroupEntry and -1 or 0
-			end)
-		});
+		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, function(isGroupEntry, isCollapsed, searchQuery, searchScore)
+			if isGroupEntry then
+				return searchQuery == ""
+			else
+				if searchQuery ~= "" and searchScore then
+					return searchScore > -1
+				else
+					return not isCollapsed
+				end
+			end
+		end);
 
 		[Blend.OnChange "AbsolutePosition"] = function(position)
 			if not self:IsVisible() then

@@ -96,11 +96,25 @@ function CommandGroup:Render(props)
 		return 1 - percent
 	end)
 
+	local targetParent = self._maid:Add(Blend.State(nil))
+
+	self._maid:GiveTask(props.TargetParent:Observe():Subscribe(function(target)
+		if target == nil then
+			targetParent.Value = self._groupFrame
+		else
+			targetParent.Value = target
+		end
+	end))
+
 	return Blend.New "Frame" {
 		Name = "CommandGroup";
-		Size = UDim2.fromScale(1, 0);
 		AutomaticSize = Enum.AutomaticSize.Y;
 		BackgroundTransparency = 1;
+		Size = UDim2.fromScale(1, 0);
+
+		Visible = Blend.Computed(props.TargetParent, function(target)
+			return target == nil
+		end);
 
 		Blend.New "UIListLayout" {
 			HorizontalAlignment = Enum.HorizontalAlignment.Center;
@@ -108,12 +122,17 @@ function CommandGroup:Render(props)
 			VerticalAlignment = Enum.VerticalAlignment.Center;
 		};
 
+		[Blend.Instance] = function(groupFrame)
+			self._groupFrame = groupFrame
+		end;
+
 		self._entries:ObserveItemsBrio():Pipe({
 			RxBrioUtils.map(function(entry)
 				return entry:Render({
 					FzyConfig = props.FzyConfig;
 					GroupCollapsed = self._groupCollapsed;
 					SearchQuery = props.SearchQuery;
+					TargetParent = targetParent;
 					Transparency = transparency;
 				})
 			end);

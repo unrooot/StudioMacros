@@ -10,6 +10,7 @@ local ButtonHighlightModel = require("ButtonHighlightModel")
 local CommandGroup = require("CommandGroup")
 local Fzy = require("Fzy")
 local ObservableList = require("ObservableList")
+local ObservableSortedList = require("ObservableSortedList")
 local Rx = require("Rx")
 local RxBrioUtils = require("RxBrioUtils")
 local ValueObject = require("ValueObject")
@@ -28,30 +29,36 @@ function CommandPalette.new()
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
 	self._inputModel = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
-	self._searchEntries = self._maid:Add(ObservableList.new())
+	self._searchEntries = self._maid:Add(ObservableSortedList.new(true))
 	self._searchQuery = self._maid:Add(ValueObject.new(""))
 	self._selectedEntry = self._maid:Add(ValueObject.new(nil))
 	self._selectedEntryIndex = self._maid:Add(ValueObject.new(0))
 	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
+	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
 
 	self:_handleInput()
 
 	self._maid:GiveTask(Rx.combineLatest({
-		CurrentGroup = self._selectedGroupEntryIndex:Observe();
 		CurrentEntry = self._selectedEntryIndex:Observe();
+		CurrentGroup = self._selectedGroupEntryIndex:Observe();
+		SearchQuery = self._searchQuery:Observe();
 	}):Subscribe(function(data)
-		if data.CurrentGroup == 0 then
-			return
-		end
-
-		local groupEntries = self._entries:GetList()
-		local currentGroup = groupEntries[data.CurrentGroup]
-		local currentEntries = currentGroup:GetEntries()
-
-		if data.CurrentEntry == 0 then
-			self._selectedEntry.Value = currentEntries[1]
+		if data.SearchQuery ~= "" then
+			self._selectedEntry.Value = self._searchEntries:GetList()[data.CurrentEntry]
 		else
-			self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
+			if data.CurrentGroup == 0 then
+				return
+			end
+
+			local groupEntries = self._entries:GetList()
+			local currentGroup = groupEntries[data.CurrentGroup]
+			local currentEntries = currentGroup:GetEntries()
+
+			if data.CurrentEntry == 0 then
+				self._selectedEntry.Value = currentEntries[1]
+			else
+				self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
+			end
 		end
 	end))
 
@@ -70,13 +77,21 @@ function CommandPalette.new()
 	end))
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
-		if isVisible and self._input then
-			self._input:CaptureFocus()
+		if self._input then
+			if isVisible then
+				self._input:CaptureFocus()
 
-			if #self._entries:GetList() > 0 then
-				self._selectedGroupEntryIndex.Value = 1
-				self._selectedEntryIndex.Value = 0
-				print(self._selectedGroupEntryIndex.Value, self._selectedEntryIndex.Value)
+				if #self._entries:GetList() > 0 then
+					if self._searchQuery.Value ~= "" then
+						self._selectedGroupEntryIndex.Value = 0
+						self._selectedEntryIndex.Value = 1
+					else
+						self._selectedGroupEntryIndex.Value = 1
+						self._selectedEntryIndex.Value = 0
+					end
+				end
+			else
+				self._input.Text = ""
 			end
 		end
 
@@ -93,7 +108,28 @@ function CommandPalette:AddGroup(groupData)
 
 	local groupEntry = self._maid:Add(CommandGroup.new())
 	groupEntry:SetHeader(groupData.Name, groupData.Icon)
+
 	self._maid:GiveTask(self._entries:Add(groupEntry))
+	self._maid:GiveTask(groupEntry._entries:ObserveItemsBrio():Subscribe(function(entryBrio)
+		if entryBrio:IsDead() then
+			return
+		end
+
+		local maid, entry = entryBrio:ToMaidAndValue()
+
+		maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
+			if scoreBrio:IsDead() then
+				return
+			end
+
+			local score = scoreBrio:GetValue()
+			if score == nil or score == -math.huge then
+				return
+			end
+
+			scoreBrio:ToMaid():GiveTask(self._searchEntries:Add(entry, entry.SearchScore:Observe()))
+		end))
+	end))
 
 	return groupEntry
 end
@@ -135,6 +171,19 @@ function CommandPalette:_handleInput()
 				self._input:CaptureFocus()
 			end
 		elseif upPressed or downPressed then
+			if self._searchQuery.Value ~= "" then
+				self._selectedGroupEntryIndex.Value = 0
+
+				local selectedEntryIndex = self._selectedEntryIndex.Value
+				if upPressed and selectedEntryIndex - 1 > 0 then
+					self._selectedEntryIndex.Value -= 1
+				elseif downPressed and selectedEntryIndex + 1 <= #self._searchEntries:GetList() then
+					self._selectedEntryIndex.Value += 1
+				end
+
+				return
+			end
+
 			local selectedEntry = self._selectedEntryIndex.Value
 			local selectedGroup = self._selectedGroupEntryIndex.Value
 			local groupEntries = self._entries:GetList()
@@ -397,6 +446,18 @@ function CommandPalette:Render(props)
 
 							[Blend.OnChange "Text"] = function(text)
 								self._searchQuery.Value = string.gsub(text, "%s+", " ")
+
+								if #self._entries:GetList() > 0 then
+									if self._searchQuery.Value ~= "" then
+										self._targetEntryParent.Value = self._entriesFrame
+										self._selectedGroupEntryIndex.Value = 0
+										self._selectedEntryIndex.Value = 1
+									else
+										self._targetEntryParent.Value = nil
+										self._selectedGroupEntryIndex.Value = 1
+										self._selectedEntryIndex.Value = 0
+									end
+								end
 							end;
 
 							[Blend.OnEvent "Focused"] = function()
@@ -541,6 +602,7 @@ function CommandPalette:Render(props)
 								return groupEntry:Render({
 									FzyConfig = FZY_CONFIG;
 									SearchQuery = self._searchQuery;
+									TargetParent = self._targetEntryParent;
 								})
 							end);
 						});

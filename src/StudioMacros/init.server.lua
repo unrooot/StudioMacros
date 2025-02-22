@@ -56,7 +56,7 @@ local function initialize(plugin)
 				groupEntry:SetIsCollapsed(true)
 			end
 
-			for _, macro in group:GetChildren() do
+			for macroIndex, macro in group:GetChildren() do
 				if macro.Name == "GroupData" or not macro:IsA("ModuleScript") then
 					continue
 				end
@@ -71,6 +71,7 @@ local function initialize(plugin)
 				)
 
 				local macroEntry = groupEntry:AddEntry(macroData)
+				macroEntry:SetDefaultIndex(macroIndex)
 
 				if macro.Name == "ToggleUIEditor" then
 					maid:GiveTask(RxInstanceUtils.observeLastNamedChildBrio(CoreGui, "Folder", "RobloxGUIEditor")
