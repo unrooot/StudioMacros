@@ -120,6 +120,14 @@ local function initialize(plugin)
 						return
 					end
 
+					if macro.Name == "ToggleUIEditor" then
+						uiEditorVisible.Value = not uiEditorVisible.Value
+						if not leavePaneOpen then
+							pane:Hide()
+						end
+						return
+					end
+
 					local undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
 					if not undoRecording then
 						warn("[StudioMacros]: Failed to begin recording for", macroData.Name)
@@ -138,11 +146,6 @@ local function initialize(plugin)
 					if (not selectedInstances or #selectedInstances == 0) and pane.TargetSelection.Value then
 						selectedInstances = pane.TargetSelection.Value
 						revertSelection = true
-					end
-
-					if macro.Name == "ToggleUIEditor" then
-						uiEditorVisible.Value = not uiEditorVisible.Value
-						return
 					end
 
 					for _, selectedInstance in selectedInstances do
