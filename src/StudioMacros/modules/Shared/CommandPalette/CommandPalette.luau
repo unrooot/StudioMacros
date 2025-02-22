@@ -456,7 +456,13 @@ function CommandPalette:Render(props)
 							end;
 
 							[Blend.OnChange "Text"] = function(text)
-								self._searchQuery.Value = string.gsub(text, "%s+", " ")
+								local safeText = string.gsub(text, "%s+", " ")
+
+								if safeText == " " then
+									safeText = ""
+								end
+
+								self._searchQuery.Value = safeText
 
 								if #self._entries:GetList() > 0 then
 									if self._searchQuery.Value ~= "" then
