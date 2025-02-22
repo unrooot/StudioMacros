@@ -2,6 +2,7 @@ local modules = script:WaitForChild("modules")
 local loader = script.Parent:FindFirstChild("LoaderUtils", true).Parent
 local require = require(loader).bootstrapPlugin(modules)
 
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local CoreGui = game:GetService("CoreGui")
 local Selection = game:GetService("Selection")
 local UserInputService = game:GetService("UserInputService")
@@ -37,6 +38,7 @@ local function initialize(plugin)
 	)
 
 	maid:GiveTask(toggleCommand.Triggered:Connect(function()
+		pane.TargetSelection.Value = Selection:Get()
 		pane:Show()
 	end))
 
@@ -118,29 +120,50 @@ local function initialize(plugin)
 						return
 					end
 
-					local selectedInstance = Selection:Get()[1]
-					if macroData.Predicate then
-						local validInstance = macroData.Predicate(selectedInstance)
-						if not validInstance then
-							print(macroData.Name, "failed predicate", selectedInstance)
-							return
-						else
-							print("passed predicate", selectedInstance)
-						end
-					end
+					local newSelection = {}
+					local selectedInstances = Selection:Get()
 
-					local newInstance = macroData.Macro(selectedInstance, plugin)
+					-- HACK: This is necessary because if you click a
+					-- TextButton in the palette, your selection will be
+					-- cleared, which is not desired. idk if this will lead to
+					-- more unintended behavior yet, also if you collapse a
+					-- group it will clear your selection before a macro is
+					-- selected.
+					local revertSelection = false
+					if (not selectedInstances or #selectedInstances == 0) and pane.TargetSelection.Value then
+						selectedInstances = pane.TargetSelection.Value
+						revertSelection = true
+					end
 
 					if macro.Name == "ToggleUIEditor" then
 						uiEditorVisible.Value = not uiEditorVisible.Value
+						return
 					end
 
-					if not leavePaneOpen then
-						pane:Hide()
+					for _, selectedInstance in selectedInstances do
+						if macroData.Predicate then
+							local validInstance = macroData.Predicate(selectedInstance)
+							if not validInstance then
+								print(macroData.Name, "failed predicate", selectedInstance)
+								continue
+							end
+						end
+
+						local newInstance = macroData.Macro(selectedInstance, plugin)
+
+						if not leavePaneOpen then
+							pane:Hide()
+						end
+
+						if newInstance then
+							table.insert(newSelection, newInstance)
+						end
 					end
 
-					if newInstance then
-						Selection:Set({ newInstance })
+					if #newSelection > 0 then
+						Selection:Set(newSelection)
+					elseif revertSelection then
+						Selection:Set(selectedInstances)
 					end
 				end
 

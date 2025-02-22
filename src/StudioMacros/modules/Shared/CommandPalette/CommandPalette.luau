@@ -37,6 +37,8 @@ function CommandPalette.new()
 	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
 	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
 
+	self.TargetSelection = self._maid:Add(ValueObject.new(nil))
+
 	self:_handleInput()
 
 	self._maid:GiveTask(Rx.combineLatest({
@@ -93,6 +95,7 @@ function CommandPalette.new()
 				end
 			else
 				self._input.Text = ""
+				self.TargetSelection.Value = nil
 			end
 		end
 
@@ -335,7 +338,7 @@ function CommandPalette:Render(props)
 		end;
 
 		Blend.New "UISizeConstraint" {
-			MinSize = Vector2.new(500, 0);
+			MinSize = Vector2.new(650, 0);
 		};
 
 		Blend.New "Frame" {
