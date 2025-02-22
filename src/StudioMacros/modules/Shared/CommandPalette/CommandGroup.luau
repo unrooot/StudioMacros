@@ -129,6 +129,7 @@ function CommandGroup:Render(props)
 		self._entries:ObserveItemsBrio():Pipe({
 			RxBrioUtils.map(function(entry)
 				return entry:Render({
+					EntryHeight = props.EntryHeight;
 					FzyConfig = props.FzyConfig;
 					GroupCollapsed = self._groupCollapsed;
 					SearchQuery = props.SearchQuery;

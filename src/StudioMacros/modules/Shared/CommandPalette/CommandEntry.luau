@@ -166,6 +166,10 @@ function CommandEntry:Render(props)
 		end
 	end))
 
+	local verticalPadding = Blend.Computed(props.EntryHeight, function(height)
+		return UDim.new(0, height == 45 and 14 or 7)
+	end);
+
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
@@ -224,9 +228,9 @@ function CommandEntry:Render(props)
 			};
 
 			Blend.New "UIPadding" {
-				PaddingBottom = UDim.new(0, 14);
+				PaddingBottom = verticalPadding;
 				PaddingRight = UDim.new(0, 7);
-				PaddingTop = UDim.new(0, 14);
+				PaddingTop = verticalPadding;
 
 				PaddingLeft = Blend.Computed(self._isGroupHeader, self._groupVisible, props.SearchQuery, function(isGroupEntry, groupVisible, searchQuery)
 					if not isGroupEntry then
@@ -385,6 +389,10 @@ function CommandEntry:Render(props)
 						else
 							return description
 						end
+					end);
+
+					Visible = Blend.Computed(props.EntryHeight, function(height)
+						return height == 45
 					end);
 				};
 			};

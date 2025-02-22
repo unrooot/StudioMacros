@@ -25,10 +25,10 @@ CommandPalette.__index = CommandPalette
 function CommandPalette.new()
 	local self = setmetatable(BasicPane.new(), CommandPalette)
 
+	self._detailsModel = self._maid:Add(ButtonHighlightModel.new())
 	self._entries = self._maid:Add(ObservableList.new())
 	self._entryHeight = self._maid:Add(ValueObject.new(45))
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
-	self._inputModel = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._searchEntries = self._maid:Add(ObservableSortedList.new(true))
 	self._searchQuery = self._maid:Add(ValueObject.new(""))
@@ -96,6 +96,7 @@ function CommandPalette.new()
 			end
 		end
 
+		self._detailsModel:SetInteractionEnabled(isVisible)
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
 	end))
 
@@ -166,6 +167,13 @@ function CommandPalette:_handleInput()
 					downPressed = true
 				elseif inputObject.KeyCode == Enum.KeyCode.K then
 					upPressed = true
+				elseif inputObject.KeyCode == Enum.KeyCode.D then
+					self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
+					self._detailsModel:SetKeyDown(true)
+
+					self._maid:GiveTask(task.delay(0.1, function()
+						self._detailsModel:SetKeyDown(false)
+					end))
 				end
 			end
 		end
@@ -308,6 +316,13 @@ function CommandPalette:Render(props)
 		end
 	end):Subscribe())
 
+	local buttonVisible = Blend.Computed(percentVisible, function(percent)
+		return percent > 0.01
+	end)
+
+	local detailsPercentHighlighted = Blend.AccelTween(self._detailsModel:ObservePercentHighlightedTarget(), 400)
+	local detailsPercentPressed = Blend.Spring(self._detailsModel:ObservePercentPressedTarget(), 40, 0.8)
+
 	return Blend.New "Frame" {
 		Name = "CommandPalette";
 		AnchorPoint = Vector2.new(0.5, 0.5);
@@ -446,6 +461,7 @@ function CommandPalette:Render(props)
 							TextSize = 15;
 							TextTransparency = transparency;
 							TextXAlignment = Enum.TextXAlignment.Left;
+							Visible = buttonVisible;
 
 							Blend.New "UITextSizeConstraint" {
 								MaxTextSize = 16;
@@ -524,18 +540,61 @@ function CommandPalette:Render(props)
 							end;
 						};
 
-						Blend.New "ImageLabel" {
-							Name = "detailsIcon";
-							AnchorPoint = Vector2.new(1, 0);
-							BackgroundTransparency = 1;
-							Image = "rbxassetid://6022668888";
-							ImageColor3 = Color3.fromRGB(75, 75, 75);
-							ImageTransparency = transparency;
+						Blend.New "TextButton" {
+							Name = "toggleDetails";
+							AnchorPoint = Vector2.new(1, 0.5);
+							BackgroundColor3 = Color3.fromRGB(40, 40, 40);
 							Position = UDim2.fromScale(1, 0);
-							Size = UDim2.fromScale(1, 1);
+							Size = UDim2.new(1, 5, 1, 5);
+							Text = "";
+							Visible = buttonVisible;
+							ZIndex = 5;
+
+							BackgroundTransparency = Blend.Computed(transparency, detailsPercentHighlighted, function(percent, percentHighlight)
+								return 1 - percentHighlight + percent
+							end);
+
+							[Blend.OnEvent "Activated"] = function()
+								self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
+							end;
+
+							[Blend.Instance] = function(button)
+								self._detailsModel:SetButton(button)
+							end;
 
 							Blend.New "UIAspectRatioConstraint" {
 								AspectRatio = 1;
+							};
+
+							Blend.New "UICorner" {
+								CornerRadius = UDim.new(0, 5);
+							};
+
+							Blend.New "ImageLabel" {
+								Name = "icon";
+								AnchorPoint = Vector2.new(0.5, 0.5);
+								BackgroundTransparency = 1;
+								Image = "rbxassetid://6022668888";
+								ImageTransparency = transparency;
+								Position = UDim2.fromScale(0.5, 0.5);
+								Size = UDim2.fromScale(1, 1);
+
+								ImageColor3 = Blend.Computed(detailsPercentHighlighted, function(percentHighlight)
+									return Color3.fromRGB(75, 75, 75):Lerp(Color3.fromRGB(150, 150, 150), percentHighlight)
+								end);
+
+								Blend.New "UIScale" {
+									Scale = Blend.Computed(detailsPercentPressed, function(percent)
+										return 1 - (percent * 0.15)
+									end);
+								};
+							};
+
+							Blend.New "UIPadding" {
+								PaddingBottom = UDim.new(0, 3);
+								PaddingLeft = UDim.new(0, 3);
+								PaddingRight = UDim.new(0, 3);
+								PaddingTop = UDim.new(0, 3);
 							};
 						};
 					};
@@ -543,7 +602,7 @@ function CommandPalette:Render(props)
 					Blend.New "TextButton" {
 						Name = "button";
 						BackgroundTransparency = 1;
-						Size = UDim2.fromScale(1, 1);
+						Size = UDim2.new(1, -35, 1, 0);
 						ZIndex = 5;
 
 						Visible = Blend.Computed(self:ObserveVisible(), self._inputFocused, function(isVisible, isFocused)
@@ -553,10 +612,6 @@ function CommandPalette:Render(props)
 								return not isFocused
 							end
 						end);
-
-						[Blend.Instance] = function(button)
-							self._inputModel:SetButton(button)
-						end;
 
 						[Blend.OnEvent "Activated"] = function()
 							self._input:CaptureFocus()
@@ -587,6 +642,7 @@ function CommandPalette:Render(props)
 						ScrollingEnabled = self:ObserveVisible();
 						Size = UDim2.fromScale(1, 1);
 						VerticalScrollBarInset = Enum.ScrollBarInset.Always;
+						Visible = buttonVisible;
 
 						CanvasSize = Blend.Computed(contentHeight, function(contentHeight)
 							return UDim2.fromOffset(0, contentHeight + 2);
@@ -594,10 +650,6 @@ function CommandPalette:Render(props)
 
 						ScrollBarThickness = Blend.Computed(percentScrollThickness, function(percent)
 							return 10 * percent
-						end);
-
-						Visible = Blend.Computed(percentVisible, function(percent)
-							return percent > 0.01
 						end);
 
 						[Blend.Instance] = function(scrollingFrame)
