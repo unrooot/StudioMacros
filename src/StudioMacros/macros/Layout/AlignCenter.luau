@@ -9,7 +9,7 @@ return {
 	Macro = function(gui)
 		if gui:IsA("UIListLayout") then
 			gui.VerticalAlignment = Enum.VerticalAlignment.Center
-			gui.HorizontalAlignment = Enum.VerticalAlignment.Center
+			gui.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		else
 			gui.AnchorPoint = Vector2.new(0.5, 0.5)
 			gui.Position = UDim2.fromScale(0.5, 0.5)
