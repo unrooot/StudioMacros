@@ -40,44 +40,7 @@ function CommandPalette.new()
 	self.TargetSelection = self._maid:Add(ValueObject.new(nil))
 
 	self:_handleInput()
-
-	self._maid:GiveTask(Rx.combineLatest({
-		CurrentEntry = self._selectedEntryIndex:Observe();
-		CurrentGroup = self._selectedGroupEntryIndex:Observe();
-		SearchQuery = self._searchQuery:Observe();
-	}):Subscribe(function(data)
-		if data.SearchQuery ~= "" then
-			self._selectedEntry.Value = self._searchEntries:GetList()[data.CurrentEntry]
-		else
-			if data.CurrentGroup == 0 then
-				return
-			end
-
-			local groupEntries = self._entries:GetList()
-			local currentGroup = groupEntries[data.CurrentGroup]
-			local currentEntries = currentGroup:GetEntries()
-
-			if data.CurrentEntry == 0 then
-				self._selectedEntry.Value = currentEntries[1]
-			else
-				self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
-			end
-		end
-	end))
-
-	self._maid:GiveTask(self._selectedEntry:Observe():Subscribe(function(entry)
-		if self._previousEntry then
-			self._previousEntry:SetIsSelected(false)
-			self._previousEntry = nil
-		end
-
-		if not entry then
-			return
-		end
-
-		entry:SetIsSelected(true)
-		self._previousEntry = entry
-	end))
+	self:_setupSearch()
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		if self._input then
@@ -249,6 +212,46 @@ function CommandPalette:_handleInput()
 				end
 			end
 		end
+	end))
+end
+
+function CommandPalette:_setupSearch()
+	self._maid:GiveTask(Rx.combineLatest({
+		CurrentEntry = self._selectedEntryIndex:Observe();
+		CurrentGroup = self._selectedGroupEntryIndex:Observe();
+		SearchQuery = self._searchQuery:Observe();
+	}):Subscribe(function(data)
+		if data.SearchQuery ~= "" then
+			self._selectedEntry.Value = self._searchEntries:GetList()[data.CurrentEntry]
+		else
+			if data.CurrentGroup == 0 then
+				return
+			end
+
+			local groupEntries = self._entries:GetList()
+			local currentGroup = groupEntries[data.CurrentGroup]
+			local currentEntries = currentGroup:GetEntries()
+
+			if data.CurrentEntry == 0 then
+				self._selectedEntry.Value = currentEntries[1]
+			else
+				self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
+			end
+		end
+	end))
+
+	self._maid:GiveTask(self._selectedEntry:Observe():Subscribe(function(entry)
+		if self._previousEntry then
+			self._previousEntry:SetIsSelected(false)
+			self._previousEntry = nil
+		end
+
+		if not entry then
+			return
+		end
+
+		entry:SetIsSelected(true)
+		self._previousEntry = entry
 	end))
 end
 
