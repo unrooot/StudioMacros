@@ -192,7 +192,7 @@ function CommandEntry:Render(props)
 				return searchQuery == ""
 			else
 				if searchQuery ~= "" and searchScore then
-					return searchScore > -1
+					return searchScore > 0
 				else
 					return not isCollapsed
 				end
