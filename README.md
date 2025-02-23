@@ -1,6 +1,8 @@
 # StudioMacros
 wip ui keyboard shortcuts plugin
 
+https://github.com/user-attachments/assets/b850abe1-c4c5-4035-aed8-b6a23bbfbbf4
+
 ## how to install
 1. install dependencies with npm (node.js required)
 ```
