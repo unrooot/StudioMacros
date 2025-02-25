@@ -1,6 +1,6 @@
 return {
 	Name = "Increment Layout Order";
-	Description = "Increment the object's layout order.";
+	Description = "Increment the object's LayoutOrder.";
 
 	Predicate = function(gui)
 		return gui:IsA("GuiObject")

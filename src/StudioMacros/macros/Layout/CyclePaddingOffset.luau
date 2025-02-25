@@ -1,6 +1,6 @@
 return {
 	Name = "Cycle Padding (5px, offset)";
-	Description = "Cycle the UIPadding offset by 5px (5px, 10px, 15px).";
+	Description = "Toggle the UIPadding offset by 5px (5px, 10px, 15px).";
 
 	Predicate = function(gui)
 		return gui:IsA("UIPadding")
