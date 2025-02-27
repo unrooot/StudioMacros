@@ -21,6 +21,7 @@ function CommandGroup.new()
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
+	self.LayoutOrder = self._maid:Add(ValueObject.new(0))
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
@@ -98,7 +99,7 @@ function CommandGroup:Render(props)
 
 	local targetParent = self._maid:Add(Blend.State(nil))
 
-	self._maid:GiveTask(props.TargetParent:Observe():Subscribe(function(target)
+	self._maid:GiveTask(props.TargetParent:Subscribe(function(target)
 		if target == nil then
 			targetParent.Value = self._groupFrame
 		else
@@ -110,10 +111,17 @@ function CommandGroup:Render(props)
 		Name = "CommandGroup";
 		AutomaticSize = Enum.AutomaticSize.Y;
 		BackgroundTransparency = 1;
+		LayoutOrder = self.LayoutOrder;
 		Size = UDim2.fromScale(1, 0);
 
-		Visible = Blend.Computed(props.TargetParent, function(target)
-			return target == nil
+		Visible = Blend.Computed(props.TargetParent, props.CustomResult, props.Enabled, function(target, customResult, isEnabled)
+			if customResult then
+				return isEnabled
+			elseif not target then
+				return true
+			end
+
+			return false
 		end);
 
 		Blend.New "UIListLayout" {
@@ -129,6 +137,8 @@ function CommandGroup:Render(props)
 		self._entries:ObserveItemsBrio():Pipe({
 			RxBrioUtils.map(function(entry)
 				return entry:Render({
+					CustomResult = props.CustomResult;
+					Enabled = props.Enabled;
 					EntryHeight = props.EntryHeight;
 					FzyConfig = props.FzyConfig;
 					GroupCollapsed = self._groupCollapsed;

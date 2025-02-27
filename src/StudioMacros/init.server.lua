@@ -38,6 +38,10 @@ local function initialize(plugin)
 	)
 
 	maid:GiveTask(toggleCommand.Triggered:Connect(function()
+		if pane:IsVisible() then
+			pane:CaptureFocus()
+		end
+
 		pane.TargetSelection.Value = Selection:Get()
 		pane:Show()
 	end))
@@ -54,10 +58,16 @@ local function initialize(plugin)
 			end
 
 			local groupEntry = pane:AddGroup(require(groupData))
+			groupEntry.LayoutOrder.Value = index
 
 			if index ~= 1 then
 				groupEntry:SetIsCollapsed(true)
 			end
+
+			local activeMacro, leaveActiveMacroOpen
+			maid:GiveTask(pane.CustomResultsReset:Connect(function()
+				activeMacro = nil
+			end))
 
 			for macroIndex, macro in group:GetChildren() do
 				if macro.Name == "GroupData" or not macro:IsA("ModuleScript") then
@@ -115,7 +125,7 @@ local function initialize(plugin)
 						end))
 				end
 
-				local function activated(leavePaneOpen: boolean?)
+				local function activated(leavePaneOpen: boolean?, ...)
 					if macroEntry:IsGroupHeader() then
 						return
 					end
@@ -128,9 +138,22 @@ local function initialize(plugin)
 						return
 					end
 
-					local undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
-					if not undoRecording then
-						warn("[StudioMacros]: Failed to begin recording for", macroData.Name)
+					local customResults = macroData.CustomResults
+					local arguments = {...}
+					if customResults and #arguments == 0 then
+						pane.TargetProperty.Value = macroData.TargetProperty
+						pane:SetCustomResults(customResults)
+						activeMacro = macroData
+
+						if leavePaneOpen then
+							leaveActiveMacroOpen = true
+						end
+
+						return
+					end
+
+					if not leavePaneOpen then
+						activeMacro = nil
 					end
 
 					local newSelection = {}
@@ -148,7 +171,16 @@ local function initialize(plugin)
 						revertSelection = true
 					end
 
+					local undoRecording
+					local function startRecording()
+						undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
+						if not undoRecording then
+							warn("[StudioMacros]: Failed to begin recording for", macroData.Name)
+						end
+					end
+
 					if #selectedInstances > 0 then
+						startRecording()
 						for _, selectedInstance in selectedInstances do
 							if macroData.Predicate then
 								local validInstance = macroData.Predicate(selectedInstance)
@@ -158,10 +190,14 @@ local function initialize(plugin)
 								end
 							end
 
-							local newInstance = macroData.Macro(selectedInstance, plugin)
+							local newInstance = macroData.Macro(selectedInstance, plugin, ...)
 
 							if not leavePaneOpen then
-								pane:Hide()
+								if leaveActiveMacroOpen then
+									pane:SetCustomResults(nil)
+								else
+									pane:Hide()
+								end
 							end
 
 							if newInstance then
@@ -170,10 +206,15 @@ local function initialize(plugin)
 						end
 					else
 						if not macroData.Predicate then
-							local newInstance = macroData.Macro(nil, plugin)
+							startRecording()
+							local newInstance = macroData.Macro(nil, plugin, ...)
 
 							if not leavePaneOpen then
-								pane:Hide()
+								if leaveActiveMacroOpen then
+									pane:SetCustomResults(nil)
+								else
+									pane:Hide()
+								end
 							end
 
 							if newInstance then
@@ -182,14 +223,30 @@ local function initialize(plugin)
 						end
 					end
 
+					leaveActiveMacroOpen = nil
+
 					if #newSelection > 0 then
 						Selection:Set(newSelection)
+						pane.TargetSelection.Value = newSelection
 					elseif revertSelection then
 						Selection:Set(selectedInstances)
+						pane.TargetSelection.Value = selectedInstances
 					end
 
-					ChangeHistoryService:FinishRecording(undoRecording, Enum.FinishRecordingOperation.Commit)
+					if undoRecording then
+						ChangeHistoryService:FinishRecording(undoRecording, Enum.FinishRecordingOperation.Commit)
+					end
 				end
+
+				maid:GiveTask(pane.CustomResultActivated:Connect(function(customResult, ...)
+					if activeMacro ~= macroData then
+						return
+					end
+
+					if customResult == macroData.CustomResults then
+						activated(...)
+					end
+				end))
 
 				maid:GiveTask(macroEntry.Activated:Connect(activated))
 				maid:GiveTask(pluginAction.Triggered:Connect(activated))

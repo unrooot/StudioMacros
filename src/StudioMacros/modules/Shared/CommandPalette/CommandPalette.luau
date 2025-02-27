@@ -1,5 +1,6 @@
 local require = require(script.Parent.loader).load(script)
 
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -7,12 +8,21 @@ local UserInputService = game:GetService("UserInputService")
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
+local ColorEntry = require("ColorEntry")
+local ColorPickerPane = require("ColorPickerPane")
 local CommandGroup = require("CommandGroup")
+local FontData = require("FontData")
+local FontEntry = require("FontEntry")
+local FontStyleEntry = require("FontStyleEntry")
 local Fzy = require("Fzy")
+local LipsumUtils = require("LipsumUtils")
 local ObservableList = require("ObservableList")
 local ObservableSortedList = require("ObservableSortedList")
 local Rx = require("Rx")
 local RxBrioUtils = require("RxBrioUtils")
+local RxInstanceUtils = require("RxInstanceUtils")
+local SearchUtils = require("SearchUtils")
+local Signal = require("Signal")
 local ValueObject = require("ValueObject")
 
 local FZY_CONFIG = Fzy.createConfig()
@@ -25,18 +35,32 @@ CommandPalette.__index = CommandPalette
 function CommandPalette.new()
 	local self = setmetatable(BasicPane.new(), CommandPalette)
 
-	self._detailsModel = self._maid:Add(ButtonHighlightModel.new())
+	self._groupMap = {}
+
+	self._actionText = self._maid:Add(ValueObject.new("select a command..."))
+	self._currentCustomResults = self._maid:Add(ValueObject.new(nil))
+	self._customResultsEnabled = self._maid:Add(ValueObject.new(false))
 	self._entries = self._maid:Add(ObservableList.new())
+	self._entriesOffset = self._maid:Add(ValueObject.new(0))
 	self._entryHeight = self._maid:Add(ValueObject.new(45))
+	self._fontPreviewText = self._maid:Add(ValueObject.new(""))
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._primaryIcon = self._maid:Add(ValueObject.new("rbxassetid://6031154871"))
+	self._primaryModel = self._maid:Add(ButtonHighlightModel.new())
 	self._searchEntries = self._maid:Add(ObservableSortedList.new(true))
 	self._searchQuery = self._maid:Add(ValueObject.new(""))
+	self._secondaryModel = self._maid:Add(ButtonHighlightModel.new())
 	self._selectedEntry = self._maid:Add(ValueObject.new(nil))
 	self._selectedEntryIndex = self._maid:Add(ValueObject.new(0))
 	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
+	self._tabbed = self._maid:Add(Signal.new())
 	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
+	self._targetFont = self._maid:Add(ValueObject.new(nil))
 
+	self.CustomResultActivated = self._maid:Add(Signal.new())
+	self.CustomResultsReset = self._maid:Add(Signal.new())
+	self.TargetProperty = self._maid:Add(ValueObject.new(nil))
 	self.TargetSelection = self._maid:Add(ValueObject.new(nil))
 
 	self:_handleInput()
@@ -45,7 +69,7 @@ function CommandPalette.new()
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		if self._input then
 			if isVisible then
-				self._input:CaptureFocus()
+				self:CaptureFocus()
 
 				if #self._entries:GetList() > 0 then
 					if self._searchQuery.Value ~= "" then
@@ -59,10 +83,12 @@ function CommandPalette.new()
 			else
 				self._input.Text = ""
 				self.TargetSelection.Value = nil
+				self:SetCustomResults(nil)
 			end
 		end
 
-		self._detailsModel:SetInteractionEnabled(isVisible)
+		self._primaryModel:SetInteractionEnabled(isVisible)
+		self._secondaryModel:SetInteractionEnabled(isVisible)
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
 	end))
 
@@ -76,6 +102,8 @@ function CommandPalette:AddGroup(groupData)
 
 	local groupEntry = self._maid:Add(CommandGroup.new())
 	groupEntry:SetHeader(groupData.Name, groupData.Icon)
+
+	table.insert(self._groupMap, groupEntry)
 
 	self._maid:GiveTask(self._entries:Add(groupEntry))
 	self._maid:GiveTask(groupEntry._entries:ObserveItemsBrio():Subscribe(function(entryBrio)
@@ -96,8 +124,12 @@ function CommandPalette:AddGroup(groupData)
 				return
 			end
 
+			if self._customResultsEnabled.Value and not entry.CustomResultType then
+				return
+			end
+
 			local score = scoreBrio:GetValue()
-			if score == nil or score == -math.huge then
+			if score == nil or score < 0 then
 				return
 			end
 
@@ -108,10 +140,104 @@ function CommandPalette:AddGroup(groupData)
 	return groupEntry
 end
 
+function CommandPalette:SetCustomResults(customResults: string)
+	if not customResults then
+		self._actionText.Value = "select a command..."
+		self._currentCustomResults.Value = nil
+		self._customResultsEnabled.Value = false
+		self._entriesOffset.Value = 0
+		self._fontPreviewText.Value = ""
+		self._primaryIcon.Value = "rbxassetid://6031154871"
+		self._targetFont.Value = false
+		self._primaryModel:SetIsChoosen(false)
+
+		if self._lastSelectedEntryIndex then
+			self._selectedEntryIndex.Value = self._lastSelectedEntryIndex
+			self._lastSelectedEntryIndex = nil
+		end
+
+		if self:IsVisible() then
+			task.defer(function()
+				RunService.RenderStepped:Wait()
+				self._input.Text = self._lastSearchQuery or ""
+				self:CaptureFocus()
+			end)
+		end
+
+		self.CustomResultsReset:Fire()
+
+		return
+	end
+
+	self._lastSelectedEntryIndex = self._selectedEntryIndex.Value
+	self._currentCustomResults.Value = customResults
+	self._customResultsEnabled.Value = true
+	self._input.Text = ""
+	self._primaryIcon.Value = "rbxassetid://6031091000"
+	self._primaryModel:SetIsChoosen(true)
+
+	self:CaptureFocus()
+
+	local selection = self.TargetSelection.Value
+
+	if customResults == "Color" then
+		if not self._colorEntries then
+			self:_setupColorResults()
+		end
+
+		self._actionText.Value = "type any color (rgb, hex, color name)..."
+	elseif customResults == "Font" then
+		if not self._fontEntries or not self._fontStyleEntries then
+			self:_setupFontResults()
+		end
+
+		self._actionText.Value = "type any font name..."
+
+		if selection then
+			local instance = selection[1]
+			local text = ""
+
+			if instance then
+				if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+					text = instance.Text
+				end
+			end
+
+			if text == "" then
+				text = LipsumUtils.sentence(7)
+			end
+
+			self._fontPreviewText.Value = string.sub(text, 0, 90)
+		end
+	elseif customResults == "FontStyle" then
+		if not self._fontEntries or not self._fontStyleEntries then
+			self:_setupFontResults()
+		end
+
+		self._actionText.Value = "type any font style..."
+
+		if selection then
+			local instance = selection[1]
+
+			if instance then
+				if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+					self._targetFont.Value = instance.FontFace
+				end
+			end
+		end
+	end
+
+	task.defer(function()
+		self._selectedEntryIndex.Value = 0
+	end)
+end
+
 function CommandPalette:_handleInput()
 	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
 		local keysPressed = UserInputService:GetKeysPressed()
 		local upPressed, downPressed, ctrlPressed = false, false, false
+		local shiftPressed = false
+		local tabPressed = false
 
 		if input.KeyCode == Enum.KeyCode.Up then
 			upPressed = true
@@ -119,11 +245,24 @@ function CommandPalette:_handleInput()
 			downPressed = true
 		end
 
-		-- Ctrl+J/Ctrl+K support
 		for _, inputObject in keysPressed do
 			if inputObject.KeyCode == Enum.KeyCode.LeftControl or inputObject.KeyCode == Enum.KeyCode.RightControl then
 				ctrlPressed = true
-				break
+			elseif inputObject.KeyCode == Enum.KeyCode.LeftShift then
+				shiftPressed = true
+			elseif inputObject.KeyCode == Enum.KeyCode.Tab then
+				tabPressed = true
+			end
+		end
+
+		if tabPressed then
+			if self._inputFocused.Value then
+				self._tabbed:Fire()
+				task.spawn(function()
+					RunService.RenderStepped:Wait()
+					local inputText = self._input.Text
+					self._input.Text = string.sub(inputText, 0, #inputText - 1)
+				end)
 			end
 		end
 
@@ -135,21 +274,47 @@ function CommandPalette:_handleInput()
 					upPressed = true
 				elseif inputObject.KeyCode == Enum.KeyCode.D then
 					self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
-					self._detailsModel:SetKeyDown(true)
+					self._secondaryModel:SetKeyDown(true)
 
 					self._maid:GiveTask(task.delay(0.1, function()
-						self._detailsModel:SetKeyDown(false)
+						self._secondaryModel:SetKeyDown(false)
 					end))
 				end
 			end
 		end
 
 		if input.KeyCode == Enum.KeyCode.Escape then
-			if self._input.Text == "" then
-				self:Hide()
+			if self._customResultsEnabled.Value then
+				if self._input.Text == "" then
+					if shiftPressed then
+						self._input:ReleaseFocus()
+					else
+						self._primaryModel:SetKeyDown(true)
+						self._maid:GiveTask(task.delay(0.1, function()
+							self._primaryModel:SetKeyDown(false)
+						end))
+
+						self:SetCustomResults(nil)
+					end
+				else
+					if shiftPressed then
+						self._input:ReleaseFocus()
+					else
+						self._input.Text = ""
+						self:CaptureFocus()
+					end
+				end
 			else
-				self._input.Text = ""
-				self._input:CaptureFocus()
+				if shiftPressed then
+					self._input:ReleaseFocus()
+				else
+					if self._input.Text == "" then
+						self:Hide()
+					else
+						self._input.Text = ""
+						self:CaptureFocus()
+					end
+				end
 			end
 		elseif upPressed or downPressed then
 			if self._searchQuery.Value ~= "" then
@@ -165,11 +330,13 @@ function CommandPalette:_handleInput()
 				return
 			end
 
+			local customResultsEnabled = self._customResultsEnabled.Value
+
 			local selectedEntry = self._selectedEntryIndex.Value
 			local selectedGroup = self._selectedGroupEntryIndex.Value
-			local groupEntries = self._entries:GetList()
+			local groupEntries = self._groupMap
 
-			if selectedGroup == 0 and selectedEntry == 0 then
+			if not customResultsEnabled and selectedGroup == 0 and selectedEntry == 0 then
 				if upPressed then
 					-- self._selectedGroupEntryIndex.Value = #groupEntries
 				else
@@ -183,32 +350,56 @@ function CommandPalette:_handleInput()
 				return
 			end
 
-			local currentGroupEntries = #currentGroup:GetEntries() - 1
+			local currentGroupEntries
+			if not customResultsEnabled then
+				currentGroupEntries = #currentGroup:GetEntries() - 1
+			else
+				local customResultType = self._currentCustomResults.Value
+				if customResultType == "Color" then
+					currentGroupEntries = #self._colorEntries - 1
+				elseif customResultType == "Font" then
+					currentGroupEntries = #self._fontEntries - 1
+				elseif customResultType == "FontStyle" then
+					currentGroupEntries = #self._fontStyleEntries - 1
+				end
+			end
 
 			if upPressed then
-				if selectedEntry - 1 >= 0 and not currentGroup:IsCollapsed() then
-					self._selectedEntryIndex.Value -= 1
-				elseif selectedEntry == 0 then
-					if selectedGroup - 1 <= 0 then
-						-- self._selectedGroupEntryIndex.Value = #groupEntries
-						return
-					else
-						self._selectedGroupEntryIndex.Value -= 1
-					end
+				if not customResultsEnabled then
+					if selectedEntry - 1 >= 0 and not currentGroup:IsCollapsed() then
+						self._selectedEntryIndex.Value -= 1
+					elseif selectedEntry == 0 then
+						if selectedGroup - 1 <= 0 then
+							-- self._selectedGroupEntryIndex.Value = #groupEntries
+							return
+						else
+							self._selectedGroupEntryIndex.Value -= 1
+						end
 
-					local newGroup = groupEntries[self._selectedGroupEntryIndex.Value]
-					if newGroup:IsCollapsed() then
-						self._selectedEntryIndex.Value = 0
-					else
-						self._selectedEntryIndex.Value = #newGroup:GetEntries() - 1
+						local newGroup = groupEntries[self._selectedGroupEntryIndex.Value]
+						if newGroup:IsCollapsed() then
+							self._selectedEntryIndex.Value = 0
+						else
+							self._selectedEntryIndex.Value = #newGroup:GetEntries() - 1
+						end
+					end
+				else
+					if selectedEntry - 1 >= 0 then
+						self._selectedEntryIndex.Value -= 1
 					end
 				end
 			else
-				if selectedEntry + 1 <= currentGroupEntries and not currentGroup:IsCollapsed() then
-					self._selectedEntryIndex.Value += 1
-				elseif ((selectedEntry + 1 > currentGroupEntries) or currentGroup:IsCollapsed()) and selectedGroup + 1 <= #groupEntries then
-					self._selectedEntryIndex.Value = 0
-					self._selectedGroupEntryIndex.Value += 1
+				if not customResultsEnabled then
+					if selectedEntry + 1 <= currentGroupEntries and not currentGroup:IsCollapsed() then
+						self._selectedEntryIndex.Value += 1
+					elseif ((selectedEntry + 1 > currentGroupEntries) or currentGroup:IsCollapsed()) and selectedGroup + 1 <= #groupEntries then
+						self._selectedEntryIndex.Value = 0
+						self._selectedGroupEntryIndex.Value += 1
+					end
+				else
+					if selectedEntry + 1 <= currentGroupEntries then
+						self._selectedEntryIndex.Value += 1
+					end
 				end
 			end
 		end
@@ -219,18 +410,37 @@ function CommandPalette:_setupSearch()
 	self._maid:GiveTask(Rx.combineLatest({
 		CurrentEntry = self._selectedEntryIndex:Observe();
 		CurrentGroup = self._selectedGroupEntryIndex:Observe();
+		CustomResultType = self._currentCustomResults:Observe();
+		CustomResultsEnabled = self._customResultsEnabled:Observe();
 		SearchQuery = self._searchQuery:Observe();
 	}):Subscribe(function(data)
 		if data.SearchQuery ~= "" then
 			self._selectedEntry.Value = self._searchEntries:GetList()[data.CurrentEntry]
 		else
-			if data.CurrentGroup == 0 then
-				return
+			local currentEntries
+
+			if not data.CustomResultsEnabled then
+				if data.CurrentGroup == 0 then
+					return
+				end
+
+				local groupEntries = self._entries:GetList()
+				local currentGroup = groupEntries[data.CurrentGroup]
+
+				currentEntries = currentGroup:GetEntries()
+			else
+				if data.CustomResultType == "Color" then
+					currentEntries = self._colorEntries
+				elseif data.CustomResultType == "Font" then
+					currentEntries = self._fontEntries
+				elseif data.CustomResultType == "FontStyle" then
+					currentEntries = self._fontStyleEntries
+				end
 			end
 
-			local groupEntries = self._entries:GetList()
-			local currentGroup = groupEntries[data.CurrentGroup]
-			local currentEntries = currentGroup:GetEntries()
+			if not currentEntries then
+				return
+			end
 
 			if data.CurrentEntry == 0 then
 				self._selectedEntry.Value = currentEntries[1]
@@ -253,6 +463,311 @@ function CommandPalette:_setupSearch()
 		entry:SetIsSelected(true)
 		self._previousEntry = entry
 	end))
+end
+
+function CommandPalette:_setupColorResults()
+	if self._colorEntries then
+		return
+	end
+
+	self._colorEntries = {}
+
+	local sortedEntries = {}
+	local colorPickerPane = self._maid:Add(ColorPickerPane.new())
+
+	self._colorPicker = colorPickerPane
+	if self._bodyFrame then
+		self._colorPicker:SetTargetParent(self._bodyFrame)
+	end
+
+	self._maid:GiveTask(colorPickerPane.TabReturned:Connect(function()
+		self:CaptureFocus()
+	end))
+
+	self._maid:GiveTask(self._currentCustomResults:ObserveBrio():Subscribe(function(customResultsBrio)
+		if customResultsBrio:IsDead() then
+			return
+		end
+
+		local maid, customResults = customResultsBrio:ToMaidAndValue()
+		if customResults ~= "Color" then
+			return
+		end
+
+		local initialSelection = self.TargetSelection.Value
+		if not initialSelection or #initialSelection == 0 then
+			return
+		end
+
+		local targetProperty = self.TargetProperty.Value
+		if not targetProperty then
+			return
+		end
+
+		if not initialSelection[1][targetProperty] then
+			return
+		end
+
+		colorPickerPane:SetColor(initialSelection[1][targetProperty])
+
+		-- Undo/redo support
+		maid:GiveTask(ChangeHistoryService.OnUndo:Connect(function()
+			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+		end))
+
+		maid:GiveTask(ChangeHistoryService.OnRedo:Connect(function()
+			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+		end))
+
+		maid:GiveTask(colorPickerPane:ObserveColor():Subscribe(function(newColor)
+			if not newColor or initialSelection[1][targetProperty] == newColor then
+				return
+			end
+
+			for _, instance in initialSelection do
+				instance[targetProperty] = newColor
+			end
+		end))
+
+		-- Since we don't want to spam the undo stack as they're picking a
+		-- color, we only want to fire the macro when the user stops dragging
+		maid:GiveTask(colorPickerPane.ColorUpdated:Connect(function(newColor)
+			self.CustomResultActivated:Fire("Color", true, newColor)
+		end))
+	end))
+
+	local function createColorEntry(i)
+		local brickColor = BrickColor.new(i)
+		if brickColor.Name == "Medium stone grey" and i ~= 194 then
+			return
+		end
+
+		local entry = self._maid:Add(ColorEntry.new())
+		entry:SetColorName(brickColor.Name)
+		entry:SetColor(brickColor.Color)
+
+		table.insert(sortedEntries, entry)
+
+		self._maid:GiveTask(entry.Activated:Connect(function(shiftPressed)
+			colorPickerPane:SetColor(brickColor.Color)
+			self.CustomResultActivated:Fire("Color", shiftPressed, brickColor.Color)
+		end))
+	end
+
+	-- from https://create.roblox.com/docs/reference/engine/datatypes/BrickColor
+	for i = 1, 50 do
+		createColorEntry(i)
+	end
+
+	for i = 100, 365 do
+		createColorEntry(i)
+	end
+
+	for i = 1001, 1032 do
+		createColorEntry(i)
+	end
+
+	table.sort(sortedEntries, function(a, b)
+		local aH, aS, aV = a.Color.Value:ToHSV()
+		local bH, bS, bV = b.Color.Value:ToHSV()
+
+		if aH ~= bH then
+			return aH < bH
+		elseif aS ~= bS then
+			return aS < bS
+		else
+			return aV < bV
+		end
+	end)
+
+	self._maid:GiveTask(self._entries:Add(colorPickerPane))
+
+	for index, entry in sortedEntries do
+		entry:SetDefaultIndex(index)
+		table.insert(self._colorEntries, entry)
+		self._maid:GiveTask(self._entries:Add(entry))
+
+		self._maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
+			if scoreBrio:IsDead() then
+				return
+			end
+
+			if not self._customResultsEnabled.Value then
+				return
+			elseif entry.CustomResultType ~= self._currentCustomResults.Value then
+				return
+			end
+
+			local score = scoreBrio:GetValue()
+			if score == nil or score < 0 then
+				return
+			end
+
+			scoreBrio:ToMaid():GiveTask(self._searchEntries:Add(entry, entry.SearchScore:Observe()))
+		end))
+	end
+
+	self._maid:GiveTask(Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, resultsType)
+		local isVisible = false
+		if isEnabled and resultsType == "Color" then
+			isVisible = true
+		end
+
+		colorPickerPane:SetVisible(isVisible)
+		for _, entry in self._colorEntries do
+			entry:SetVisible(isVisible)
+		end
+	end):Subscribe())
+end
+
+function CommandPalette:_setupFontResults()
+	if self._fontEntries then
+		return
+	end
+
+	self._fontEntries = {}
+	self._fontStyleEntries = {}
+
+	local sortedFontEntries = {}
+	local sortedFontStyleEntries = {}
+	local styleEntryMap = {}
+
+	for fontId, data in FontData do
+		local newFont
+		if typeof(fontId) == "number" then
+			newFont = Font.fromId(fontId)
+		elseif typeof(fontId) == "string" then
+			newFont = Font.new(fontId)
+		end
+
+		local fontNameEntry = self._maid:Add(FontEntry.new())
+		fontNameEntry:SetFontName(data.Name)
+		fontNameEntry:SetStyleCount(#data.Styles)
+		fontNameEntry.Font.Value = newFont
+
+		for _, style in data.Styles do
+			local isItalic = string.find(style, "Italic") and true or false
+			local styleEntry = styleEntryMap[style]
+
+			if not styleEntry then
+				styleEntry = self._maid:Add(FontStyleEntry.new())
+				styleEntry:SetIsItalic(isItalic)
+				styleEntry:SetStyleName(style)
+
+				table.insert(sortedFontStyleEntries, styleEntry)
+				styleEntryMap[style] = styleEntry
+
+				self._maid:GiveTask(styleEntry.Activated:Connect(function(shiftPressed)
+					self.CustomResultActivated:Fire("FontStyle", shiftPressed, styleEntry:GetData())
+				end))
+			end
+
+			styleEntry:SetFontCompatible(newFont)
+		end
+
+		self._maid:GiveTask(fontNameEntry.Activated:Connect(function(shiftPressed)
+			self.CustomResultActivated:Fire("Font", shiftPressed, fontNameEntry.Font.Value)
+		end))
+
+		table.insert(sortedFontEntries, fontNameEntry)
+	end
+
+	table.sort(sortedFontEntries, function(a, b)
+		local aFontName = a:GetFontName()
+		local bFontName = b:GetFontName()
+
+		return aFontName < bFontName
+	end)
+
+	table.sort(sortedFontStyleEntries, function(a, b)
+		local aFontWeight = a:GetFontWeight()
+		local bFontWeight = b:GetFontWeight()
+
+		return aFontWeight < bFontWeight
+	end)
+
+	for index, entry in sortedFontEntries do
+		entry:SetDefaultIndex(index)
+		table.insert(self._fontEntries, entry)
+		self._maid:GiveTask(self._entries:Add(entry))
+
+		self._maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
+			if scoreBrio:IsDead() then
+				return
+			end
+
+			if not self._customResultsEnabled.Value then
+				return
+			elseif entry.CustomResultType ~= self._currentCustomResults.Value then
+				return
+			end
+
+			local score = scoreBrio:GetValue()
+			if score == nil or score < 0 then
+				return
+			end
+
+			scoreBrio:ToMaid():GiveTask(self._searchEntries:Add(entry, entry.SearchScore:Observe()))
+		end))
+	end
+
+	for index, entry in sortedFontStyleEntries do
+		entry:SetDefaultIndex(index)
+		table.insert(self._fontStyleEntries, entry)
+		self._maid:GiveTask(self._entries:Add(entry))
+
+		self._maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
+			if scoreBrio:IsDead() then
+				return
+			end
+
+			if not self._customResultsEnabled.Value then
+				return
+			elseif entry.CustomResultType ~= self._currentCustomResults.Value then
+				return
+			end
+
+			local targetFont = self._targetFont.Value
+			if not targetFont or not entry:IsFontCompatible(targetFont) then
+				return
+			end
+
+			local score = scoreBrio:GetValue()
+			if score == nil or score < 0 then
+				return
+			end
+
+			scoreBrio:ToMaid():GiveTask(self._searchEntries:Add(entry, entry.SearchScore:Observe()))
+		end))
+	end
+
+	self._maid:GiveTask(Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, resultsType)
+		local isVisible = false
+		if isEnabled then
+			isVisible = true
+		end
+
+		if resultsType == "Font" then
+			for _, entry in self._fontEntries do
+				entry:SetVisible(isVisible)
+			end
+		elseif resultsType == "FontStyle" then
+			for _, entry in self._fontStyleEntries do
+				entry:SetVisible(isVisible)
+			end
+		end
+	end):Subscribe())
+end
+
+function CommandPalette:CaptureFocus()
+	if not self._input then
+		return
+	end
+
+	task.defer(function()
+		RunService.RenderStepped:Wait()
+		self._input:CaptureFocus()
+	end)
 end
 
 function CommandPalette:Render(props)
@@ -308,15 +823,24 @@ function CommandPalette:Render(props)
 
 			local entryPosition = entry:GetYPosition() - framePosition
 			local entrySize = self._entryHeight.Value
-			local entryBottom = entryPosition + entrySize
 
-			if entryPosition < canvasPosition then
+			local customResults = self._currentCustomResults.Value
+			if customResults == "Font" or customResults == "FontStyle" then
+				entrySize = entrySize == 45 and 60 or 40
+			end
+
+			local entryBottom = entryPosition + entrySize
+			local newCanvasPosition = canvasPosition
+
+			if entryBottom > frameSize then
+				newCanvasPosition += entryBottom - frameSize + 1
+			elseif entryPosition < framePosition then
+				newCanvasPosition -= entryPosition
+			end
+
+			if newCanvasPosition ~= canvasPosition then
 				TweenService:Create(self._entriesFrame, TWEEN_INFO, {
-					CanvasPosition = Vector2.new(0, entryPosition)
-				}):Play()
-			elseif entryBottom > frameSize then
-				TweenService:Create(self._entriesFrame, TWEEN_INFO, {
-					CanvasPosition = Vector2.new(0, canvasPosition + (entryBottom - frameSize) + 1)
+					CanvasPosition = Vector2.new(0, newCanvasPosition)
 				}):Play()
 			end
 		end
@@ -326,8 +850,11 @@ function CommandPalette:Render(props)
 		return percent > 0.01
 	end)
 
-	local detailsPercentHighlighted = Blend.AccelTween(self._detailsModel:ObservePercentHighlightedTarget(), 400)
-	local detailsPercentPressed = Blend.Spring(self._detailsModel:ObservePercentPressedTarget(), 40, 0.8)
+	local primaryPercentHighlighted = Blend.AccelTween(self._primaryModel:ObservePercentHighlightedTarget(), 400)
+	local primaryPercentPressed = Blend.Spring(self._primaryModel:ObservePercentPressedTarget(), 40, 0.8)
+	local primaryPercentSelected = Blend.Spring(self._primaryModel:ObservePercentChoosenTarget(), 40, 0.8)
+	local secondaryPercentHighlighted = Blend.AccelTween(self._secondaryModel:ObservePercentHighlightedTarget(), 400)
+	local secondaryPercentPressed = Blend.Spring(self._secondaryModel:ObservePercentPressedTarget(), 40, 0.8)
 
 	return Blend.New "Frame" {
 		Name = "CommandPalette";
@@ -442,25 +969,74 @@ function CommandPalette:Render(props)
 							VerticalAlignment = Enum.VerticalAlignment.Center;
 						};
 
-						Blend.New "ImageLabel" {
-							Name = "searchIcon";
-							BackgroundTransparency = 1;
-							Image = "rbxassetid://6031154871";
-							ImageColor3 = Color3.fromRGB(150, 150, 150);
-							ImageTransparency = transparency;
-							Size = UDim2.fromScale(1, 1);
+						Blend.New "TextButton" {
+							Name = "primaryAction";
+							AnchorPoint = Vector2.new(1, 0.5);
+							BackgroundColor3 = Color3.fromRGB(40, 40, 40);
+							Interactable = self._customResultsEnabled;
+							LayoutOrder = 1;
+							Position = UDim2.fromScale(1, 0);
+							Size = UDim2.new(1, 5, 1, 5);
+							Text = "";
+							Visible = buttonVisible;
+							ZIndex = 5;
+
+							BackgroundTransparency = Blend.Computed(transparency, primaryPercentHighlighted, primaryPercentSelected, function(percent, percentHighlight, percentSelected)
+								return 1 - percentHighlight + percent - percentSelected
+							end);
+
+							[Blend.OnEvent "Activated"] = function()
+								if self._customResultsEnabled.Value then
+									self:SetCustomResults(nil)
+								end
+							end;
+
+							[Blend.Instance] = function(button)
+								self._primaryModel:SetButton(button)
+							end;
 
 							Blend.New "UIAspectRatioConstraint" {
 								AspectRatio = 1;
 							};
-						};
 
+							Blend.New "UICorner" {
+								CornerRadius = UDim.new(0, 5);
+							};
+
+							Blend.New "ImageLabel" {
+								Name = "icon";
+								AnchorPoint = Vector2.new(0.5, 0.5);
+								BackgroundTransparency = 1;
+								Image = self._primaryIcon;
+								ImageTransparency = transparency;
+								Position = UDim2.fromScale(0.5, 0.5);
+								Size = UDim2.fromScale(1, 1);
+
+								ImageColor3 = Blend.Computed(primaryPercentHighlighted, function(percentHighlight)
+									return Color3.fromRGB(75, 75, 75):Lerp(Color3.fromRGB(150, 150, 150), percentHighlight)
+								end);
+
+								Blend.New "UIScale" {
+									Scale = Blend.Computed(primaryPercentPressed, function(percent)
+										return 1 - (percent * 0.15)
+									end);
+								};
+							};
+
+							Blend.New "UIPadding" {
+								PaddingBottom = UDim.new(0, 3);
+								PaddingLeft = UDim.new(0, 3);
+								PaddingRight = UDim.new(0, 3);
+								PaddingTop = UDim.new(0, 3);
+							};
+						};
 						Blend.New "TextBox" {
 							Name = "input";
 							BackgroundTransparency = 1;
 							FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
+							LayoutOrder = 2;
 							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
-							PlaceholderText = "select a command...";
+							PlaceholderText = self._actionText;
 							Position = UDim2.fromScale(0.04, 0);
 							Size = UDim2.fromScale(0.9, 1);
 							TextColor3 = Color3.fromRGB(220, 220, 220);
@@ -482,6 +1058,14 @@ function CommandPalette:Render(props)
 
 								if safeText == " " then
 									safeText = ""
+								end
+
+								if self._customResultsEnabled.Value then
+									if not self._lastSearchQuery then
+										self._lastSearchQuery = self._searchQuery.Value
+									end
+								else
+									self._lastSearchQuery = nil
 								end
 
 								self._searchQuery.Value = safeText
@@ -506,10 +1090,29 @@ function CommandPalette:Render(props)
 							[Blend.OnEvent "FocusLost"] = function(enterPressed)
 								local selectedEntry = self._selectedEntry.Value
 								local refocusInput = false
-								local shiftPressed = false
+								local escapePressed, shiftPressed, tabPressed
+
+								-- Hold shift to trigger without closing the palette
+								for _, inputObject in UserInputService:GetKeysPressed() do
+									if inputObject.KeyCode == Enum.KeyCode.LeftShift then
+										shiftPressed = true
+									elseif inputObject.KeyCode == Enum.KeyCode.Escape then
+										escapePressed = true
+									elseif inputObject.KeyCode == Enum.KeyCode.Tab then
+										tabPressed = true
+									end
+								end
+
+								if tabPressed then
+									return
+								end
+
+								if shiftPressed and not escapePressed then
+									refocusInput = true
+								end
 
 								if enterPressed and selectedEntry then
-									if selectedEntry:IsGroupHeader() then
+									if not selectedEntry.CustomResultType and selectedEntry:IsGroupHeader() then
 										local selectedGroup = self._selectedGroupEntryIndex.Value
 										local groupEntry = self._entries:GetList()[selectedGroup]
 
@@ -520,26 +1123,34 @@ function CommandPalette:Render(props)
 										groupEntry:SetIsCollapsed(not groupEntry:IsCollapsed())
 										refocusInput = true
 									else
-										-- Hold shift to trigger without closing the palette
-										for _, inputObject in UserInputService:GetKeysPressed() do
-											if inputObject.KeyCode == Enum.KeyCode.LeftShift then
-												shiftPressed = true
-												break
-											end
-										end
-
 										selectedEntry.Activated:Fire(shiftPressed)
-										if shiftPressed then
-											refocusInput = true
+									end
+								elseif enterPressed then
+									if self._customResultsEnabled.Value then
+										local customResultsType = self._currentCustomResults.Value
+										if customResultsType == "Color" then
+											local currentText = self._input.Text
+											if SearchUtils.stringIsRGB(currentText) then
+												local _, r, g, b = SearchUtils.stringIsRGB(currentText)
+												local newColor = Color3.fromRGB(r, g, b)
+												if self._colorPicker then
+													self._colorPicker:SetColor(newColor)
+												end
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
+											elseif SearchUtils.stringIsHex(currentText) then
+												local _, hex = SearchUtils.stringIsHex(currentText)
+												local newColor = Color3.fromHex(hex)
+												if self._colorPicker then
+													self._colorPicker:SetColor(newColor)
+												end
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
+											end
 										end
 									end
 								end
 
 								if refocusInput then
-									task.spawn(function()
-										RunService.RenderStepped:Wait()
-										self._input:CaptureFocus()
-									end)
+									self:CaptureFocus()
 								else
 									self._inputFocused.Value = false
 								end
@@ -547,16 +1158,17 @@ function CommandPalette:Render(props)
 						};
 
 						Blend.New "TextButton" {
-							Name = "toggleDetails";
+							Name = "secondaryAction";
 							AnchorPoint = Vector2.new(1, 0.5);
 							BackgroundColor3 = Color3.fromRGB(40, 40, 40);
+							LayoutOrder = 3;
 							Position = UDim2.fromScale(1, 0);
 							Size = UDim2.new(1, 5, 1, 5);
 							Text = "";
 							Visible = buttonVisible;
 							ZIndex = 5;
 
-							BackgroundTransparency = Blend.Computed(transparency, detailsPercentHighlighted, function(percent, percentHighlight)
+							BackgroundTransparency = Blend.Computed(transparency, secondaryPercentHighlighted, function(percent, percentHighlight)
 								return 1 - percentHighlight + percent
 							end);
 
@@ -565,7 +1177,7 @@ function CommandPalette:Render(props)
 							end;
 
 							[Blend.Instance] = function(button)
-								self._detailsModel:SetButton(button)
+								self._secondaryModel:SetButton(button)
 							end;
 
 							Blend.New "UIAspectRatioConstraint" {
@@ -585,12 +1197,12 @@ function CommandPalette:Render(props)
 								Position = UDim2.fromScale(0.5, 0.5);
 								Size = UDim2.fromScale(1, 1);
 
-								ImageColor3 = Blend.Computed(detailsPercentHighlighted, function(percentHighlight)
+								ImageColor3 = Blend.Computed(secondaryPercentHighlighted, function(percentHighlight)
 									return Color3.fromRGB(75, 75, 75):Lerp(Color3.fromRGB(150, 150, 150), percentHighlight)
 								end);
 
 								Blend.New "UIScale" {
-									Scale = Blend.Computed(detailsPercentPressed, function(percent)
+									Scale = Blend.Computed(secondaryPercentPressed, function(percent)
 										return 1 - (percent * 0.15)
 									end);
 								};
@@ -608,8 +1220,23 @@ function CommandPalette:Render(props)
 					Blend.New "TextButton" {
 						Name = "button";
 						BackgroundTransparency = 1;
-						Size = UDim2.new(1, -35, 1, 0);
 						ZIndex = 5;
+
+						Position = Blend.Computed(self._inputFocused, self._customResultsEnabled, function(isFocused, customResults)
+							if isFocused or customResults then
+								return UDim2.new(0, 35, 0, 0)
+							else
+								return UDim2.fromOffset(0, 0)
+							end
+						end);
+
+						Size = Blend.Computed(self._inputFocused, self._customResultsEnabled, function(isFocused, customResults)
+							if isFocused then
+								return UDim2.new(1, -70, 1, 0)
+							else
+								return UDim2.new(1, -35, 1, 0)
+							end
+						end);
 
 						Visible = Blend.Computed(self:ObserveVisible(), self._inputFocused, function(isVisible, isFocused)
 							if not isVisible then
@@ -620,7 +1247,7 @@ function CommandPalette:Render(props)
 						end);
 
 						[Blend.OnEvent "Activated"] = function()
-							self._input:CaptureFocus()
+							self:CaptureFocus()
 						end;
 					};
 				};
@@ -638,6 +1265,10 @@ function CommandPalette:Render(props)
 						PaddingTop = UDim.new(0, 5);
 					};
 
+					[Blend.Instance] = function(frame)
+						self._bodyFrame = frame
+					end;
+
 					Blend.New "ScrollingFrame" {
 						Name = "entries";
 						Active = true;
@@ -646,12 +1277,19 @@ function CommandPalette:Render(props)
 						ScrollBarImageTransparency = transparency;
 						ScrollingDirection = Enum.ScrollingDirection.Y;
 						ScrollingEnabled = self:ObserveVisible();
-						Size = UDim2.fromScale(1, 1);
 						VerticalScrollBarInset = Enum.ScrollBarInset.Always;
 						Visible = buttonVisible;
 
-						CanvasSize = Blend.Computed(contentHeight, function(contentHeight)
-							return UDim2.fromOffset(0, contentHeight + 2);
+						CanvasSize = Blend.Computed(contentHeight, self._entriesOffset, function(contentHeight, offset)
+							return UDim2.fromOffset(0, contentHeight + 2 - offset);
+						end);
+
+						Position = Blend.Computed(self._entriesOffset, function(offset)
+							return UDim2.fromOffset(0, offset)
+						end);
+
+						Size = Blend.Computed(self._entriesOffset, function(offset)
+							return UDim2.new(1, 0, 1, -offset)
 						end);
 
 						ScrollBarThickness = Blend.Computed(percentScrollThickness, function(percent)
@@ -680,17 +1318,51 @@ function CommandPalette:Render(props)
 									return
 								end
 
-								contentHeight.Value = math.round(size.Y)
+								contentHeight.Value = math.round(size.Y) + self._entriesOffset.Value
 							end;
 						};
 
 						self._entries:ObserveItemsBrio():Pipe({
 							RxBrioUtils.map(function(groupEntry)
 								return groupEntry:Render({
+									CustomResult = self._currentCustomResults;
 									EntryHeight = self._entryHeight;
+									FontPreviewText = self._fontPreviewText;
 									FzyConfig = FZY_CONFIG;
 									SearchQuery = self._searchQuery;
-									TargetParent = self._targetEntryParent;
+									Tabbed = self._tabbed;
+									Transparency = transparency;
+									TargetFont = self._targetFont;
+
+									Enabled = Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, customResults)
+										if customResults and groupEntry.CustomResultType == customResults then
+											return isEnabled
+										else
+											return not isEnabled
+										end
+									end);
+
+									TargetParent = Blend.Computed(self._targetEntryParent, self._customResultsEnabled, self._currentCustomResults, function(targetParent, isEnabled, customResultType)
+										if groupEntry.CustomResultType then
+											if isEnabled then
+												if customResultType == groupEntry.CustomResultType then
+													if groupEntry.Pinned then
+														self._entriesOffset.Value = groupEntry.Height or 0
+														groupEntry:SetTargetParent(self._bodyFrame)
+														return self._bodyFrame
+													else
+														return self._entriesFrame
+													end
+												else
+													return nil
+												end
+											else
+												return nil
+											end
+										else
+											return not isEnabled and targetParent or nil
+										end
+									end);
 								})
 							end);
 						});

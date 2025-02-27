@@ -1,6 +1,6 @@
 return {
 	Name = "Cycle Padding (5px, scale)";
-	Description = "Cycle the UIPadding scale by 5px (5px, 10px, 15px).";
+	Description = "Toggle the UIPadding scale by 5px (5px, 10px, 15px).";
 
 	Predicate = function(gui)
 		return gui:IsA("UIPadding")

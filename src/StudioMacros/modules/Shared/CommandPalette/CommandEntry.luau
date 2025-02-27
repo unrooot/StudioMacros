@@ -5,6 +5,7 @@ local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
 local Fzy = require("Fzy")
 local Rx = require("Rx")
+local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
 local ValueObject = require("ValueObject")
 
@@ -73,55 +74,6 @@ function CommandEntry:SetDefaultIndex(index: number)
 	self._defaultIndex.Value = index
 end
 
-function CommandEntry:_getMatchedString(fzyConfig, targetString, searchQuery)
-	if not fzyConfig or not targetString or not searchQuery then
-		return
-	end
-
-	searchQuery = string.lower(searchQuery)
-
-	local positions = Fzy.positions(fzyConfig, searchQuery, string.lower(targetString))
-	if not positions or #positions == 0 then
-		return targetString
-	end
-
-	local ranges = {}
-	local startPos, endPos = positions[1], positions[1]
-
-	for i = 2, #positions do
-		if positions[i] == endPos + 1 then
-			endPos = positions[i]
-
-			if i == #positions then
-				table.insert(ranges, { startPos, endPos })
-			end
-		else
-			table.insert(ranges, { startPos, endPos })
-			startPos = positions[i]
-			endPos = positions[i]
-		end
-	end
-
-	if #ranges == 0 then
-		return targetString
-	end
-
-	local finalString = ""
-
-	for index, range in ranges do
-		local start = string.sub(targetString, index == 1 and 0 or ranges[index - 1][2] + 1, range[1] - 1)
-		local matched = string.sub(targetString, range[1], range[2])
-
-		finalString ..= `{start}<font color="#d0a4f7">{matched}</font>`
-
-		if index == #ranges then
-			finalString ..= string.sub(targetString, range[2] + 1, string.len(targetString))
-		end
-	end
-
-	return finalString
-end
-
 function CommandEntry:SetIsSelected(isSelected: boolean)
 	self._model:SetIsChoosen(isSelected)
 	self._model._isMouseOver.Value = isSelected
@@ -187,7 +139,11 @@ function CommandEntry:Render(props)
 			return UDim2.new(1, 0, 0, height)
 		end);
 
-		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, function(isGroupEntry, isCollapsed, searchQuery, searchScore)
+		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, props.CustomResult, props.Enabled, function(isGroupEntry, isCollapsed, searchQuery, searchScore, customResult, isEnabled)
+			if customResult then
+				return isEnabled
+			end
+
 			if isGroupEntry then
 				return searchQuery == ""
 			else
@@ -360,7 +316,7 @@ function CommandEntry:Render(props)
 
 					Text = Blend.Computed(self._macroName, props.SearchQuery, function(macroName, searchQuery)
 						if searchQuery ~= "" then
-							return self:_getMatchedString(fzyConfig, macroName, searchQuery)
+							return SearchUtils.getMatchedString(fzyConfig, macroName, searchQuery)
 						else
 							return macroName
 						end
@@ -385,7 +341,7 @@ function CommandEntry:Render(props)
 
 					Text = Blend.Computed(self._macroDescription, props.SearchQuery, function(description, searchQuery)
 						if searchQuery ~= "" then
-							return self:_getMatchedString(fzyConfig, description, searchQuery)
+							return SearchUtils.getMatchedString(fzyConfig, description, searchQuery)
 						else
 							return description
 						end

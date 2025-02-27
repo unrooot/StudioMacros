@@ -1,6 +1,6 @@
 return {
 	Name = "Decrement Layout Order";
-	Description = "Decrement the object's layout order.";
+	Description = "Decrement the object's LayoutOrder.";
 
 	Predicate = function(gui)
 		return gui:IsA("GuiObject")
