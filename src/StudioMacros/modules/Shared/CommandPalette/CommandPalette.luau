@@ -453,7 +453,6 @@ function CommandPalette:_setupColorResults()
 	end
 
 	self._maid:GiveTask(colorPickerPane.TabReturned:Connect(function()
-		print("tab returned")
 		self:CaptureFocus()
 	end))
 
@@ -474,6 +473,10 @@ function CommandPalette:_setupColorResults()
 
 		local targetProperty = self.TargetProperty.Value
 		if not targetProperty then
+			return
+		end
+
+		if not initialSelection[1][targetProperty] then
 			return
 		end
 
