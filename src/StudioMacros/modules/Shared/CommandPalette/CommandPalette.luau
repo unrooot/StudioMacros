@@ -59,6 +59,7 @@ function CommandPalette.new()
 	self._targetFont = self._maid:Add(ValueObject.new(nil))
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())
+	self.CustomResultsReset = self._maid:Add(Signal.new())
 	self.TargetProperty = self._maid:Add(ValueObject.new(nil))
 	self.TargetSelection = self._maid:Add(ValueObject.new(nil))
 
@@ -162,6 +163,8 @@ function CommandPalette:SetCustomResults(customResults: string)
 				self:CaptureFocus()
 			end)
 		end
+
+		self.CustomResultsReset:Fire()
 
 		return
 	end

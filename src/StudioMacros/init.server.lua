@@ -64,6 +64,11 @@ local function initialize(plugin)
 				groupEntry:SetIsCollapsed(true)
 			end
 
+			local activeMacro, leaveActiveMacroOpen
+			maid:GiveTask(pane.CustomResultsReset:Connect(function()
+				activeMacro = nil
+			end))
+
 			for macroIndex, macro in group:GetChildren() do
 				if macro.Name == "GroupData" or not macro:IsA("ModuleScript") then
 					continue
@@ -120,7 +125,6 @@ local function initialize(plugin)
 						end))
 				end
 
-				local activeMacro, leaveActiveMacroOpen
 				local function activated(leavePaneOpen: boolean?, ...)
 					if macroEntry:IsGroupHeader() then
 						return
