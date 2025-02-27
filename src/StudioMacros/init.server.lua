@@ -144,7 +144,9 @@ local function initialize(plugin)
 						return
 					end
 
-					activeMacro = nil
+					if not leavePaneOpen then
+						activeMacro = nil
+					end
 
 					local newSelection = {}
 					local selectedInstances = Selection:Get()

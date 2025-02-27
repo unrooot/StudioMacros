@@ -942,7 +942,12 @@ function CommandPalette:Render(props)
 										groupEntry:SetIsCollapsed(not groupEntry:IsCollapsed())
 										refocusInput = true
 									else
-										selectedEntry.Activated:Fire(shiftPressed)
+										if selectedEntry.CustomResultType then
+											local customResultsType = self._currentCustomResults.Value
+											self.CustomResultActivated:Fire(customResultsType, shiftPressed, selectedEntry:GetData())
+										else
+											selectedEntry.Activated:Fire(shiftPressed)
+										end
 									end
 								elseif enterPressed then
 									if self._customResultsEnabled.Value then
