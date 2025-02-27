@@ -38,6 +38,10 @@ local function initialize(plugin)
 	)
 
 	maid:GiveTask(toggleCommand.Triggered:Connect(function()
+		if pane:IsVisible() then
+			pane:CaptureFocus()
+		end
+
 		pane.TargetSelection.Value = Selection:Get()
 		pane:Show()
 	end))
@@ -172,6 +176,7 @@ local function initialize(plugin)
 					end
 
 					if #selectedInstances > 0 then
+						startRecording()
 						for _, selectedInstance in selectedInstances do
 							if macroData.Predicate then
 								local validInstance = macroData.Predicate(selectedInstance)
@@ -181,7 +186,6 @@ local function initialize(plugin)
 								end
 							end
 
-							startRecording()
 							local newInstance = macroData.Macro(selectedInstance, plugin, ...)
 
 							if not leavePaneOpen then

@@ -1,5 +1,6 @@
 local require = require(script.Parent.loader).load(script)
 
+local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -39,6 +40,7 @@ function CommandPalette.new()
 	self._currentCustomResults = self._maid:Add(ValueObject.new(nil))
 	self._customResultsEnabled = self._maid:Add(ValueObject.new(false))
 	self._entries = self._maid:Add(ObservableList.new())
+	self._entriesOffset = self._maid:Add(ValueObject.new(0))
 	self._entryHeight = self._maid:Add(ValueObject.new(45))
 	self._fontPreviewText = self._maid:Add(ValueObject.new(""))
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
@@ -63,7 +65,7 @@ function CommandPalette.new()
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		if self._input then
 			if isVisible then
-				self._input:CaptureFocus()
+				self:CaptureFocus()
 
 				if #self._entries:GetList() > 0 then
 					if self._searchQuery.Value ~= "" then
@@ -139,6 +141,7 @@ function CommandPalette:SetCustomResults(customResults: string)
 		self._actionText.Value = "select a command..."
 		self._currentCustomResults.Value = nil
 		self._customResultsEnabled.Value = false
+		self._entriesOffset.Value = 0
 		self._fontPreviewText.Value = ""
 		self._primaryIcon.Value = "rbxassetid://6031154871"
 		self._primaryModel:SetIsChoosen(false)
@@ -152,7 +155,7 @@ function CommandPalette:SetCustomResults(customResults: string)
 			task.defer(function()
 				RunService.RenderStepped:Wait()
 				self._input.Text = self._lastSearchQuery or ""
-				self._input:CaptureFocus()
+				self:CaptureFocus()
 			end)
 		end
 
@@ -166,10 +169,7 @@ function CommandPalette:SetCustomResults(customResults: string)
 	self._primaryIcon.Value = "rbxassetid://6031091000"
 	self._primaryModel:SetIsChoosen(true)
 
-	task.defer(function()
-		RunService.RenderStepped:Wait()
-		self._input:CaptureFocus()
-	end)
+	self:CaptureFocus()
 
 	local selection = self.TargetSelection.Value
 
@@ -211,6 +211,7 @@ function CommandPalette:_handleInput()
 	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
 		local keysPressed = UserInputService:GetKeysPressed()
 		local upPressed, downPressed, ctrlPressed = false, false, false
+		local shiftPressed = false
 
 		if input.KeyCode == Enum.KeyCode.Up then
 			upPressed = true
@@ -222,7 +223,8 @@ function CommandPalette:_handleInput()
 		for _, inputObject in keysPressed do
 			if inputObject.KeyCode == Enum.KeyCode.LeftControl or inputObject.KeyCode == Enum.KeyCode.RightControl then
 				ctrlPressed = true
-				break
+			elseif inputObject.KeyCode == Enum.KeyCode.LeftShift then
+				shiftPressed = true
 			end
 		end
 
@@ -246,22 +248,34 @@ function CommandPalette:_handleInput()
 		if input.KeyCode == Enum.KeyCode.Escape then
 			if self._customResultsEnabled.Value then
 				if self._input.Text == "" then
-					self._primaryModel:SetKeyDown(true)
-					self._maid:GiveTask(task.delay(0.1, function()
-						self._primaryModel:SetKeyDown(false)
-					end))
+					if shiftPressed then
+						self._input:ReleaseFocus()
+					else
+						self._primaryModel:SetKeyDown(true)
+						self._maid:GiveTask(task.delay(0.1, function()
+							self._primaryModel:SetKeyDown(false)
+						end))
 
-					self:SetCustomResults(nil)
+						self:SetCustomResults(nil)
+					end
 				else
-					self._input.Text = ""
-					self._input:CaptureFocus()
+					if shiftPressed then
+						self._input:ReleaseFocus()
+					else
+						self._input.Text = ""
+						self:CaptureFocus()
+					end
 				end
 			else
-				if self._input.Text == "" then
-					self:Hide()
+				if shiftPressed then
+					self._input:ReleaseFocus()
 				else
-					self._input.Text = ""
-					self._input:CaptureFocus()
+					if self._input.Text == "" then
+						self:Hide()
+					else
+						self._input.Text = ""
+						self:CaptureFocus()
+					end
 				end
 			end
 		elseif upPressed or downPressed then
@@ -419,6 +433,11 @@ function CommandPalette:_setupColorResults()
 	local sortedEntries = {}
 	local colorPickerPane = self._maid:Add(ColorPickerPane.new())
 
+	self._colorPicker = colorPickerPane
+	if self._bodyFrame then
+		self._colorPicker:SetTargetParent(self._bodyFrame)
+	end
+
 	self._maid:GiveTask(self._currentCustomResults:ObserveBrio():Subscribe(function(customResultsBrio)
 		if customResultsBrio:IsDead() then
 			return
@@ -434,12 +453,37 @@ function CommandPalette:_setupColorResults()
 			return
 		end
 
-		local instance = initialSelection[1]
 		local targetProperty = self.TargetProperty.Value
-
-		if targetProperty and instance:IsA("GuiObject") then
-			maid:GiveTask(colorPickerPane:SetColor(RxInstanceUtils.observeProperty(instance, targetProperty)))
+		if not targetProperty then
+			return
 		end
+
+		colorPickerPane:SetColor(initialSelection[1][targetProperty])
+
+		-- Undo/redo support
+		maid:GiveTask(ChangeHistoryService.OnUndo:Connect(function()
+			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+		end))
+
+		maid:GiveTask(ChangeHistoryService.OnRedo:Connect(function()
+			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+		end))
+
+		maid:GiveTask(colorPickerPane:ObserveColor():Subscribe(function(newColor)
+			if not newColor or initialSelection[1][targetProperty] == newColor then
+				return
+			end
+
+			for _, instance in initialSelection do
+				instance[targetProperty] = newColor
+			end
+		end))
+
+		-- Since we don't want to spam the undo stack as they're picking a
+		-- color, we only want to fire the macro when the user stops dragging
+		maid:GiveTask(colorPickerPane.ColorUpdated:Connect(function(newColor)
+			self.CustomResultActivated:Fire("Color", true, newColor)
+		end))
 	end))
 
 	local function createColorEntry(i)
@@ -455,6 +499,7 @@ function CommandPalette:_setupColorResults()
 		table.insert(sortedEntries, entry)
 
 		self._maid:GiveTask(entry.Activated:Connect(function(shiftPressed)
+			colorPickerPane:SetColor(brickColor.Color)
 			self.CustomResultActivated:Fire("Color", shiftPressed, brickColor.Color)
 		end))
 	end
@@ -596,6 +641,17 @@ function CommandPalette:_setupFontResults()
 	end):Subscribe())
 end
 
+function CommandPalette:CaptureFocus()
+	if not self._input then
+		return
+	end
+
+	task.defer(function()
+		RunService.RenderStepped:Wait()
+		self._input:CaptureFocus()
+	end)
+end
+
 function CommandPalette:Render(props)
 	local target = self._percentVisibleTarget:Observe()
 
@@ -649,11 +705,6 @@ function CommandPalette:Render(props)
 
 			local entryPosition = entry:GetYPosition() - framePosition
 			local entrySize = self._entryHeight.Value
-
-			-- Account for color picker at the top of the list
-			if self._currentCustomResults.Value == "Color" then
-				entryPosition += 160
-			end
 
 			local entryBottom = entryPosition + entrySize
 			local newCanvasPosition = canvasPosition
@@ -916,17 +967,18 @@ function CommandPalette:Render(props)
 							[Blend.OnEvent "FocusLost"] = function(enterPressed)
 								local selectedEntry = self._selectedEntry.Value
 								local refocusInput = false
-								local shiftPressed = false
+								local escapePressed, shiftPressed = false
 
 								-- Hold shift to trigger without closing the palette
 								for _, inputObject in UserInputService:GetKeysPressed() do
 									if inputObject.KeyCode == Enum.KeyCode.LeftShift then
 										shiftPressed = true
-										break
+									elseif inputObject.KeyCode == Enum.KeyCode.Escape then
+										escapePressed = true
 									end
 								end
 
-								if shiftPressed then
+								if shiftPressed and not escapePressed then
 									refocusInput = true
 								end
 
@@ -942,12 +994,7 @@ function CommandPalette:Render(props)
 										groupEntry:SetIsCollapsed(not groupEntry:IsCollapsed())
 										refocusInput = true
 									else
-										if selectedEntry.CustomResultType then
-											local customResultsType = self._currentCustomResults.Value
-											self.CustomResultActivated:Fire(customResultsType, shiftPressed, selectedEntry:GetData())
-										else
-											selectedEntry.Activated:Fire(shiftPressed)
-										end
+										selectedEntry.Activated:Fire(shiftPressed)
 									end
 								elseif enterPressed then
 									if self._customResultsEnabled.Value then
@@ -956,20 +1003,25 @@ function CommandPalette:Render(props)
 											local currentText = self._input.Text
 											if SearchUtils.stringIsRGB(currentText) then
 												local _, r, g, b = SearchUtils.stringIsRGB(currentText)
-												self.CustomResultActivated:Fire("Color", shiftPressed, Color3.fromRGB(r, g, b))
+												local newColor = Color3.fromRGB(r, g, b)
+												if self._colorPicker then
+													self._colorPicker:SetColor(newColor)
+												end
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
 											elseif SearchUtils.stringIsHex(currentText) then
 												local _, hex = SearchUtils.stringIsHex(currentText)
-												self.CustomResultActivated:Fire("Color", shiftPressed, Color3.fromHex(hex))
+												local newColor = Color3.fromHex(hex)
+												if self._colorPicker then
+													self._colorPicker:SetColor(newColor)
+												end
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
 											end
 										end
 									end
 								end
 
 								if refocusInput then
-									task.defer(function()
-										RunService.RenderStepped:Wait()
-										self._input:CaptureFocus()
-									end)
+									self:CaptureFocus()
 								else
 									self._inputFocused.Value = false
 								end
@@ -1066,7 +1118,7 @@ function CommandPalette:Render(props)
 						end);
 
 						[Blend.OnEvent "Activated"] = function()
-							self._input:CaptureFocus()
+							self:CaptureFocus()
 						end;
 					};
 				};
@@ -1084,6 +1136,10 @@ function CommandPalette:Render(props)
 						PaddingTop = UDim.new(0, 5);
 					};
 
+					[Blend.Instance] = function(frame)
+						self._bodyFrame = frame
+					end;
+
 					Blend.New "ScrollingFrame" {
 						Name = "entries";
 						Active = true;
@@ -1092,12 +1148,19 @@ function CommandPalette:Render(props)
 						ScrollBarImageTransparency = transparency;
 						ScrollingDirection = Enum.ScrollingDirection.Y;
 						ScrollingEnabled = self:ObserveVisible();
-						Size = UDim2.fromScale(1, 1);
 						VerticalScrollBarInset = Enum.ScrollBarInset.Always;
 						Visible = buttonVisible;
 
-						CanvasSize = Blend.Computed(contentHeight, function(contentHeight)
-							return UDim2.fromOffset(0, contentHeight + 2);
+						CanvasSize = Blend.Computed(contentHeight, self._entriesOffset, function(contentHeight, offset)
+							return UDim2.fromOffset(0, contentHeight + 2 - offset);
+						end);
+
+						Position = Blend.Computed(self._entriesOffset, function(offset)
+							return UDim2.fromOffset(0, offset)
+						end);
+
+						Size = Blend.Computed(self._entriesOffset, function(offset)
+							return UDim2.new(1, 0, 1, -offset)
 						end);
 
 						ScrollBarThickness = Blend.Computed(percentScrollThickness, function(percent)
@@ -1126,7 +1189,7 @@ function CommandPalette:Render(props)
 									return
 								end
 
-								contentHeight.Value = math.round(size.Y)
+								contentHeight.Value = math.round(size.Y) + self._entriesOffset.Value
 							end;
 						};
 
@@ -1151,7 +1214,17 @@ function CommandPalette:Render(props)
 									TargetParent = Blend.Computed(self._targetEntryParent, self._customResultsEnabled, self._currentCustomResults, function(targetParent, isEnabled, customResultType)
 										if groupEntry.CustomResultType then
 											if isEnabled then
-												return customResultType == groupEntry.CustomResultType and self._entriesFrame or nil
+												if customResultType == groupEntry.CustomResultType then
+													if groupEntry.Pinned then
+														self._entriesOffset.Value = groupEntry.Height or 0
+														groupEntry:SetTargetParent(self._bodyFrame)
+														return self._bodyFrame
+													else
+														return self._entriesFrame
+													end
+												else
+													return nil
+												end
 											else
 												return nil
 											end
