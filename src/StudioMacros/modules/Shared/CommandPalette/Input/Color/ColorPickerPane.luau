@@ -1,11 +1,13 @@
 local require = require(script.Parent.loader).load(script)
 
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local Rx = require("Rx")
+local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
 local SpringObject = require("SpringObject")
 local ValueObject = require("ValueObject")
@@ -22,15 +24,50 @@ ColorPickerPane.__index = ColorPickerPane
 function ColorPickerPane.new()
 	local self = setmetatable(BasicPane.new(), ColorPickerPane)
 
+	self._tabInputMap = {}
+
 	self._currentBrightness = self._maid:Add(ValueObject.new(nil))
 	self._currentHue = self._maid:Add(ValueObject.new(nil))
 	self._currentSaturation = self._maid:Add(ValueObject.new(nil))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._tabInputIndex = self._maid:Add(ValueObject.new(nil))
 	self._targetParent = self._maid:Add(ValueObject.new(nil))
 	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.ColorUpdated = self._maid:Add(Signal.new())
 	self.CurrentColor = self._maid:Add(ValueObject.new(Color3.new(1, 1, 1)))
+	self.TabReturned = self._maid:Add(Signal.new())
+
+	self._maid:GiveTask(self._tabInputIndex:Observe():Subscribe(function(index)
+		if not index then
+			return
+		end
+
+		if index == 0 then
+			self.TabReturned:Fire()
+			return
+		end
+
+		local input = self._tabInputMap[index]
+		if input then
+			task.spawn(function()
+				RunService.RenderStepped:Wait()
+				input:CaptureFocus()
+			end)
+		end
+	end))
+
+	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			local shiftPressed = self:_shiftPressed()
+
+			if input.KeyCode == Enum.KeyCode.Tab then
+				if shiftPressed then
+					self._tabInputIndex.Value = math.clamp(self._tabInputIndex.Value - 1, 0, #self._tabInputMap)
+				end
+			end
+		end
+	end))
 
 	self._maid:GiveTask(UserInputService.InputChanged:Connect(function(input)
 		if not self:IsVisible() then
@@ -174,6 +211,19 @@ function ColorPickerPane:Render(props)
 			return math.abs(percent - 1)
 		end);
 	}), 50, 0.9)
+
+	self._maid._tabbed = props.Tabbed:Connect(function()
+		if self:_shiftPressed() then
+			return
+		end
+
+		if not self._tabInputIndex.Value then
+			self._tabInputIndex.Value = 1
+			return
+		end
+
+		self._tabInputIndex.Value = math.clamp(self._tabInputIndex.Value + 1, 0, #self._tabInputMap)
+	end)
 
 	return Blend.New "Frame" {
 		Name = "ColorPickerPane";
@@ -669,6 +719,53 @@ function ColorPickerPane:Render(props)
 						PlaceholderText = Blend.Computed(targetColor, function(color)
 							return `{math.round(color.R * 255)}, {math.round(color.G * 255)}, {math.round(color.B * 255)}`
 						end);
+
+						[Blend.Instance] = function(textBox)
+							self._rgbInput = textBox
+							table.insert(self._tabInputMap, 1, textBox)
+						end;
+
+						[Blend.OnChange "Text"] = function(newText)
+							if not self._rgbInput then
+								return
+							end
+
+							if newText == self._rgbInput.PlaceholderText then
+								return
+							end
+
+							if SearchUtils.stringIsRGB(self._rgbInput.Text) then
+								local _, r, g, b = SearchUtils.stringIsRGB(self._rgbInput.Text)
+								self:SetColor(Color3.fromRGB(r, g, b))
+							end
+						end;
+
+						[Blend.OnEvent "Focused"] = function()
+							self:_handleFocused(self._rgbInput)
+						end;
+
+						[Blend.OnEvent "FocusLost"] = function(enterPressed)
+							if not self._rgbInput then
+								return
+							end
+
+							if enterPressed then
+								if self._rgbInput.Text ~= self._rgbInput.PlaceholderText then
+									if SearchUtils.stringIsRGB(self._rgbInput.Text) then
+										local _, r, g, b = SearchUtils.stringIsRGB(self._rgbInput.Text)
+										self:SetColor(Color3.fromRGB(r, g, b))
+									end
+
+									self._rgbInput.Text = ""
+								else
+									self._rgbInput.Text = ""
+								end
+							else
+								self._rgbInput.Text = ""
+							end
+						end;
+
+						self:_handleFocusLost()
 					};
 				};
 
@@ -734,6 +831,53 @@ function ColorPickerPane:Render(props)
 						PlaceholderText = Blend.Computed(targetColor, function(color)
 							return color:ToHex()
 						end);
+
+						[Blend.Instance] = function(textBox)
+							self._hexInput = textBox
+							table.insert(self._tabInputMap, 2, textBox)
+						end;
+
+						[Blend.OnChange "Text"] = function(newText)
+							if not self._hexInput then
+								return
+							end
+
+							if newText == self._hexInput.PlaceholderText then
+								return
+							end
+
+							if SearchUtils.stringIsHex(self._hexInput.Text) then
+								local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
+								self:SetColor(Color3.fromHex(hex))
+							end
+						end;
+
+						[Blend.OnEvent "Focused"] = function()
+							self:_handleFocused(self._hexInput)
+						end;
+
+						[Blend.OnEvent "FocusLost"] = function(enterPressed)
+							if not self._hexInput then
+								return
+							end
+
+							if enterPressed then
+								if self._hexInput.Text ~= self._hexInput.PlaceholderText then
+									if SearchUtils.stringIsHex(self._hexInput.Text) then
+										local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
+										self:SetColor(Color3.fromHex(hex))
+									end
+
+									self._hexInput.Text = ""
+								else
+									self._hexInput.Text = ""
+								end
+							else
+								self._hexInput.Text = ""
+							end
+
+							self:_handleFocusLost()
+						end;
 					};
 				};
 
@@ -790,6 +934,62 @@ function ColorPickerPane:Render(props)
 							PlaceholderText = Blend.Computed(targetColor, function(color)
 								return `{math.round(color.R * 255)}`
 							end);
+
+							[Blend.Instance] = function(textBox)
+								self._rInput = textBox
+								table.insert(self._tabInputMap, 3, textBox)
+							end;
+
+							[Blend.OnChange "Text"] = function(newText)
+								if not self._rInput or not self._rInput:IsFocused() then
+									return
+								end
+
+								if newText == self._rInput.PlaceholderText then
+									return
+								end
+
+								if tonumber(newText) then
+									local currentColor = self.CurrentColor.Value
+									local r, g, b = math.clamp(tonumber(newText), 0, 255),
+										math.clamp(math.round(currentColor.G * 255), 0, 255),
+										math.clamp(math.round(currentColor.B * 255), 0, 255)
+
+									self:SetColor(Color3.fromRGB(r, g, b))
+								end
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self:_handleFocused(self._rInput)
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								if not self._rInput then
+									return
+								end
+
+								local text = self._rInput.Text
+								if enterPressed then
+									if text ~= self._rInput.PlaceholderText then
+										if tonumber(text) then
+											local currentColor = self.CurrentColor.Value
+											local r, g, b = math.clamp(tonumber(text), 0, 255),
+												math.clamp(math.round(currentColor.G * 255), 0, 255),
+												math.clamp(math.round(currentColor.B * 255), 0, 255)
+
+											self:SetColor(Color3.fromRGB(r, g, b))
+										end
+
+										self._rInput.Text = ""
+									else
+										self._rInput.Text = ""
+									end
+								else
+									self._rInput.Text = ""
+								end
+
+								self:_handleFocusLost()
+							end;
 						};
 					};
 
@@ -832,6 +1032,62 @@ function ColorPickerPane:Render(props)
 							PlaceholderText = Blend.Computed(targetColor, function(color)
 								return `{math.round(color.G * 255)}`
 							end);
+
+							[Blend.Instance] = function(textBox)
+								self._gInput = textBox
+								table.insert(self._tabInputMap, 4, textBox)
+							end;
+
+							[Blend.OnChange "Text"] = function(newText)
+								if not self._gInput or not self._gInput:IsFocused() then
+									return
+								end
+
+								if newText == self._gInput.PlaceholderText then
+									return
+								end
+
+								if tonumber(newText) then
+									local currentColor = self.CurrentColor.Value
+									local r, g, b = math.clamp(math.round(currentColor.R * 255), 0, 255),
+										math.clamp(tonumber(newText), 0, 255),
+										math.clamp(math.round(currentColor.B * 255), 0, 255)
+
+									self:SetColor(Color3.fromRGB(r, g, b))
+								end
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self:_handleFocused(self._gInput)
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								if not self._gInput then
+									return
+								end
+
+								local text = self._gInput.Text
+								if enterPressed then
+									if text ~= self._gInput.PlaceholderText then
+										if tonumber(text) then
+											local currentColor = self.CurrentColor.Value
+											local r, g, b = math.clamp(math.round(currentColor.R * 255), 0, 255),
+												math.clamp(tonumber(text), 0, 255),
+												math.clamp(math.round(currentColor.B * 255), 0, 255)
+
+											self:SetColor(Color3.fromRGB(r, g, b))
+										end
+
+										self._gInput.Text = ""
+									else
+										self._gInput.Text = ""
+									end
+								else
+									self._gInput.Text = ""
+								end
+
+								self:_handleFocusLost()
+							end;
 						};
 					};
 
@@ -874,6 +1130,62 @@ function ColorPickerPane:Render(props)
 							PlaceholderText = Blend.Computed(targetColor, function(color)
 								return `{math.round(color.B * 255)}`
 							end);
+
+							[Blend.Instance] = function(textBox)
+								self._bInput = textBox
+								table.insert(self._tabInputMap, 5, textBox)
+							end;
+
+							[Blend.OnChange "Text"] = function(newText)
+								if not self._bInput or not self._bInput:IsFocused() then
+									return
+								end
+
+								if newText == self._bInput.PlaceholderText then
+									return
+								end
+
+								if tonumber(newText) then
+									local currentColor = self.CurrentColor.Value
+									local r, g, b = math.clamp(math.round(currentColor.R * 255), 0, 255),
+										math.clamp(math.round(currentColor.G * 255), 0, 255),
+										math.clamp(tonumber(newText), 0, 255)
+
+									self:SetColor(Color3.fromRGB(r, g, b))
+								end
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self:_handleFocused(self._bInput)
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								if not self._bInput then
+									return
+								end
+
+								local text = self._bInput.Text
+								if enterPressed then
+									if text ~= self._bInput.PlaceholderText then
+										if tonumber(text) then
+											local currentColor = self.CurrentColor.Value
+											local r, g, b = math.clamp(math.round(currentColor.R * 255), 0, 255),
+												math.clamp(math.round(currentColor.G * 255), 0, 255),
+												math.clamp(tonumber(text), 0, 255)
+
+											self:SetColor(Color3.fromRGB(r, g, b))
+										end
+
+										self._bInput.Text = ""
+									else
+										self._bInput.Text = ""
+									end
+								else
+									self._bInput.Text = ""
+								end
+
+								self:_handleFocusLost()
+							end;
 						};
 					};
 				};
@@ -892,8 +1204,42 @@ function ColorPickerPane:Render(props)
 	};
 end
 
+function ColorPickerPane:_handleFocusLost()
+	if not UserInputService:GetFocusedTextBox() then
+		self._tabInputIndex.Value = nil
+	end
+end
+
+function ColorPickerPane:_handleFocused(input)
+	if not input then
+		return
+	end
+
+	if not self._tabInputIndex.Value then
+		local index = table.find(self._tabInputMap, input)
+		self._tabInputIndex.Value = index
+	end
+
+	local placeholder = input.PlaceholderText
+
+	input.Text = placeholder
+	input.SelectionStart = 0
+	input.CursorPosition = #placeholder + 1
+end
+
 function ColorPickerPane:_isValidInput(inputObject)
 	return inputObject.UserInputType == Enum.UserInputType.MouseButton1 or inputObject.UserInputType == Enum.UserInputType.Touch
+end
+
+function ColorPickerPane:_shiftPressed()
+	local shiftPressed = false
+	for _, inputObject in UserInputService:GetKeysPressed() do
+		if inputObject.KeyCode == Enum.KeyCode.LeftShift then
+			shiftPressed = true
+			break
+		end
+	end
+	return shiftPressed
 end
 
 return ColorPickerPane

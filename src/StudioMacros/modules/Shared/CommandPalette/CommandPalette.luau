@@ -53,6 +53,7 @@ function CommandPalette.new()
 	self._selectedEntry = self._maid:Add(ValueObject.new(nil))
 	self._selectedEntryIndex = self._maid:Add(ValueObject.new(0))
 	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
+	self._tabbed = self._maid:Add(Signal.new())
 	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())
@@ -212,6 +213,7 @@ function CommandPalette:_handleInput()
 		local keysPressed = UserInputService:GetKeysPressed()
 		local upPressed, downPressed, ctrlPressed = false, false, false
 		local shiftPressed = false
+		local tabPressed = false
 
 		if input.KeyCode == Enum.KeyCode.Up then
 			upPressed = true
@@ -219,12 +221,24 @@ function CommandPalette:_handleInput()
 			downPressed = true
 		end
 
-		-- Ctrl+J/Ctrl+K support
 		for _, inputObject in keysPressed do
 			if inputObject.KeyCode == Enum.KeyCode.LeftControl or inputObject.KeyCode == Enum.KeyCode.RightControl then
 				ctrlPressed = true
 			elseif inputObject.KeyCode == Enum.KeyCode.LeftShift then
 				shiftPressed = true
+			elseif inputObject.KeyCode == Enum.KeyCode.Tab then
+				tabPressed = true
+			end
+		end
+
+		if tabPressed then
+			if self._inputFocused.Value then
+				self._tabbed:Fire()
+				task.spawn(function()
+					RunService.RenderStepped:Wait()
+					local inputText = self._input.Text
+					self._input.Text = string.sub(inputText, 0, #inputText - 1)
+				end)
 			end
 		end
 
@@ -437,6 +451,11 @@ function CommandPalette:_setupColorResults()
 	if self._bodyFrame then
 		self._colorPicker:SetTargetParent(self._bodyFrame)
 	end
+
+	self._maid:GiveTask(colorPickerPane.TabReturned:Connect(function()
+		print("tab returned")
+		self:CaptureFocus()
+	end))
 
 	self._maid:GiveTask(self._currentCustomResults:ObserveBrio():Subscribe(function(customResultsBrio)
 		if customResultsBrio:IsDead() then
@@ -967,7 +986,7 @@ function CommandPalette:Render(props)
 							[Blend.OnEvent "FocusLost"] = function(enterPressed)
 								local selectedEntry = self._selectedEntry.Value
 								local refocusInput = false
-								local escapePressed, shiftPressed = false
+								local escapePressed, shiftPressed, tabPressed
 
 								-- Hold shift to trigger without closing the palette
 								for _, inputObject in UserInputService:GetKeysPressed() do
@@ -975,7 +994,13 @@ function CommandPalette:Render(props)
 										shiftPressed = true
 									elseif inputObject.KeyCode == Enum.KeyCode.Escape then
 										escapePressed = true
+									elseif inputObject.KeyCode == Enum.KeyCode.Tab then
+										tabPressed = true
 									end
+								end
+
+								if tabPressed then
+									return
 								end
 
 								if shiftPressed and not escapePressed then
@@ -1201,6 +1226,7 @@ function CommandPalette:Render(props)
 									FontPreviewText = self._fontPreviewText;
 									FzyConfig = FZY_CONFIG;
 									SearchQuery = self._searchQuery;
+									Tabbed = self._tabbed;
 									Transparency = transparency;
 
 									Enabled = Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, customResults)
