@@ -1,5 +1,7 @@
 local require = require(script.Parent.loader).load(script)
 
+local UserInputService = game:GetService("UserInputService")
+
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
@@ -249,7 +251,15 @@ function ColorEntry:Render(props)
 			ZIndex = 5;
 
 			[Blend.OnEvent "Activated"] = function()
-				self.Activated:Fire()
+				local shiftPressed = false
+				for _, inputObject in UserInputService:GetKeysPressed() do
+					if inputObject.KeyCode == Enum.KeyCode.LeftShift then
+						shiftPressed = true
+						break
+					end
+				end
+
+				self.Activated:Fire(shiftPressed)
 			end;
 
 			[Blend.Instance] = function(button)
