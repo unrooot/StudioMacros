@@ -4,12 +4,22 @@ wip ui keyboard shortcuts plugin
 https://github.com/user-attachments/assets/b850abe1-c4c5-4035-aed8-b6a23bbfbbf4
 
 ## how to install
-1. install dependencies with npm (node.js required)
+either download the plugin file from the [latest
+release](https://github.com/unrooot/StudioMacros/releases) and copy it to your
+studio plugins folder, or build it from source with npm and rojo.
+
+## how to build from source
+1. clone the repo and cd into the directory
+```
+git clone https://github.com/unrooot/studiomacros && cd studiomacros
+```
+
+2. install dependencies with npm (node.js required)
 ```
 npm i
 ```
 
-2. build the plugin with rojo
+3. build the plugin with rojo
 ```
 rojo build --plugin StudioMacros.rbxm
 ```
@@ -27,6 +37,8 @@ and press the shortcut to open the command palette.
 * `Shift+Enter` to run the selected command without closing the command palette
 * `Esc` to close the command palette (or clear the search)
 * `Ctrl+D` to toggle descriptions on the macros in the list
+* `Shift+Escape` to release focus from the command palette
+* `Tab` and `Shift+Tab` to cycle through custom result inputs (currently only implemented in the color picker)
 
 ### a note on input:
 roblox studio plugins currently do not have a good way of handling input and
@@ -41,13 +53,19 @@ palette.
 ---
 
 ## how to add new macros
-to add a new macro, you will need to build the plugin. create a new file in any
+you will need to build the plugin to add new macros. create a new file in any
 folder inside of `src/StudioMacros/macros` with the following structure:
 
 ```lua
 return {
 	Name = "Macro Name",
 	Description = "A description of the macro",
+
+	-- optional values, when provided the macro will use the custom results to
+	-- select arguments which will be passed to the macro. see:
+	-- ChangeBackgroundColor.luau or ChangeFont.luau for an example
+	CustomResults = "Color" | "Font" | "FontStyle",
+	TargetProperty = "BackgroundColor3",
 
 	-- optional predicate function that should return true if the macro should
 	-- work + be available for the given instance
