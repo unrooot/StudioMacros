@@ -928,7 +928,7 @@ return {
 	["rbxasset://fonts/families/GothamSSm.json"] = {
 		Name = "Gotham SSm";
 		Styles = {
-			"Book",
+			"Regular",
 			"Medium",
 			"Bold",
 			"Black"

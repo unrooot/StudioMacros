@@ -13,6 +13,7 @@ local ColorPickerPane = require("ColorPickerPane")
 local CommandGroup = require("CommandGroup")
 local FontData = require("FontData")
 local FontEntry = require("FontEntry")
+local FontStyleEntry = require("FontStyleEntry")
 local Fzy = require("Fzy")
 local LipsumUtils = require("LipsumUtils")
 local ObservableList = require("ObservableList")
@@ -55,6 +56,7 @@ function CommandPalette.new()
 	self._selectedGroupEntryIndex = self._maid:Add(ValueObject.new(0))
 	self._tabbed = self._maid:Add(Signal.new())
 	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
+	self._targetFont = self._maid:Add(ValueObject.new(nil))
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())
 	self.TargetProperty = self._maid:Add(ValueObject.new(nil))
@@ -145,6 +147,7 @@ function CommandPalette:SetCustomResults(customResults: string)
 		self._entriesOffset.Value = 0
 		self._fontPreviewText.Value = ""
 		self._primaryIcon.Value = "rbxassetid://6031154871"
+		self._targetFont.Value = false
 		self._primaryModel:SetIsChoosen(false)
 
 		if self._lastSelectedEntryIndex then
@@ -181,7 +184,7 @@ function CommandPalette:SetCustomResults(customResults: string)
 
 		self._actionText.Value = "type any color (rgb, hex, color name)..."
 	elseif customResults == "Font" then
-		if not self._fontEntries then
+		if not self._fontEntries or not self._fontStyleEntries then
 			self:_setupFontResults()
 		end
 
@@ -191,8 +194,10 @@ function CommandPalette:SetCustomResults(customResults: string)
 			local instance = selection[1]
 			local text = ""
 
-			if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
-				text = instance.Text
+			if instance then
+				if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+					text = instance.Text
+				end
 			end
 
 			if text == "" then
@@ -200,6 +205,22 @@ function CommandPalette:SetCustomResults(customResults: string)
 			end
 
 			self._fontPreviewText.Value = string.sub(text, 0, 90)
+		end
+	elseif customResults == "FontStyle" then
+		if not self._fontEntries or not self._fontStyleEntries then
+			self:_setupFontResults()
+		end
+
+		self._actionText.Value = "type any font style..."
+
+		if selection then
+			local instance = selection[1]
+
+			if instance then
+				if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+					self._targetFont.Value = instance.FontFace
+				end
+			end
 		end
 	end
 
@@ -332,9 +353,11 @@ function CommandPalette:_handleInput()
 			else
 				local customResultType = self._currentCustomResults.Value
 				if customResultType == "Color" then
-					currentGroupEntries = #self._colorEntries
+					currentGroupEntries = #self._colorEntries - 1
 				elseif customResultType == "Font" then
-					currentGroupEntries = #self._fontEntries
+					currentGroupEntries = #self._fontEntries - 1
+				elseif customResultType == "FontStyle" then
+					currentGroupEntries = #self._fontStyleEntries - 1
 				end
 			end
 
@@ -407,6 +430,8 @@ function CommandPalette:_setupSearch()
 					currentEntries = self._colorEntries
 				elseif data.CustomResultType == "Font" then
 					currentEntries = self._fontEntries
+				elseif data.CustomResultType == "FontStyle" then
+					currentEntries = self._fontStyleEntries
 				end
 			end
 
@@ -571,7 +596,7 @@ function CommandPalette:_setupColorResults()
 			end
 
 			local score = scoreBrio:GetValue()
-			if score == nil or score == -math.huge then
+			if score == nil or score < 0 then
 				return
 			end
 
@@ -598,35 +623,67 @@ function CommandPalette:_setupFontResults()
 	end
 
 	self._fontEntries = {}
+	self._fontStyleEntries = {}
 
-	local sortedEntries = {}
+	local sortedFontEntries = {}
+	local sortedFontStyleEntries = {}
+	local styleEntryMap = {}
 
 	for fontId, data in FontData do
-		local entry = self._maid:Add(FontEntry.new())
-		entry:SetFontName(data.Name)
-		entry:SetStyleCount(#data.Styles)
-
+		local newFont
 		if typeof(fontId) == "number" then
-			entry.Font.Value = Font.fromId(fontId)
+			newFont = Font.fromId(fontId)
 		elseif typeof(fontId) == "string" then
-			entry.Font.Value = Font.new(fontId)
+			newFont = Font.new(fontId)
 		end
 
-		self._maid:GiveTask(entry.Activated:Connect(function(shiftPressed)
-			self.CustomResultActivated:Fire("Font", shiftPressed, entry.Font.Value)
+		local fontNameEntry = self._maid:Add(FontEntry.new())
+		fontNameEntry:SetFontName(data.Name)
+		fontNameEntry:SetStyleCount(#data.Styles)
+		fontNameEntry.Font.Value = newFont
+
+		for _, style in data.Styles do
+			local isItalic = string.find(style, "Italic") and true or false
+			local styleEntry = styleEntryMap[style]
+
+			if not styleEntry then
+				styleEntry = self._maid:Add(FontStyleEntry.new())
+				styleEntry:SetIsItalic(isItalic)
+				styleEntry:SetStyleName(style)
+
+				table.insert(sortedFontStyleEntries, styleEntry)
+				styleEntryMap[style] = styleEntry
+
+				self._maid:GiveTask(styleEntry.Activated:Connect(function(shiftPressed)
+					self.CustomResultActivated:Fire("FontStyle", shiftPressed, styleEntry:GetData())
+				end))
+			end
+
+			styleEntry:SetFontCompatible(newFont)
+		end
+
+		self._maid:GiveTask(fontNameEntry.Activated:Connect(function(shiftPressed)
+			self.CustomResultActivated:Fire("Font", shiftPressed, fontNameEntry.Font.Value)
 		end))
 
-		table.insert(sortedEntries, entry)
+		table.insert(sortedFontEntries, fontNameEntry)
 	end
 
-	table.sort(sortedEntries, function(a, b)
+	table.sort(sortedFontEntries, function(a, b)
 		local aFontName = a:GetFontName()
 		local bFontName = b:GetFontName()
 
 		return aFontName < bFontName
 	end)
 
-	for index, entry in sortedEntries do
+	table.sort(sortedFontStyleEntries, function(a, b)
+		local aFontWeight = a:GetFontWeight()
+		local bFontWeight = b:GetFontWeight()
+
+		return aFontWeight < bFontWeight
+	end)
+
+	for index, entry in sortedFontEntries do
 		entry:SetDefaultIndex(index)
 		table.insert(self._fontEntries, entry)
 		self._maid:GiveTask(self._entries:Add(entry))
@@ -643,7 +700,37 @@ function CommandPalette:_setupFontResults()
 			end
 
 			local score = scoreBrio:GetValue()
-			if score == nil or score == -math.huge then
+			if score == nil or score < 0 then
+				return
+			end
+
+			scoreBrio:ToMaid():GiveTask(self._searchEntries:Add(entry, entry.SearchScore:Observe()))
+		end))
+	end
+
+	for index, entry in sortedFontStyleEntries do
+		entry:SetDefaultIndex(index)
+		table.insert(self._fontStyleEntries, entry)
+		self._maid:GiveTask(self._entries:Add(entry))
+
+		self._maid:GiveTask(entry.SearchScore:ObserveBrio():Subscribe(function(scoreBrio)
+			if scoreBrio:IsDead() then
+				return
+			end
+
+			if not self._customResultsEnabled.Value then
+				return
+			elseif entry.CustomResultType ~= self._currentCustomResults.Value then
+				return
+			end
+
+			local targetFont = self._targetFont.Value
+			if not targetFont or not entry:IsFontCompatible(targetFont) then
+				return
+			end
+
+			local score = scoreBrio:GetValue()
+			if score == nil or score < 0 then
 				return
 			end
 
@@ -653,12 +740,18 @@ function CommandPalette:_setupFontResults()
 
 	self._maid:GiveTask(Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, resultsType)
 		local isVisible = false
-		if isEnabled and resultsType == "Font" then
+		if isEnabled then
 			isVisible = true
 		end
 
-		for _, entry in self._fontEntries do
-			entry:SetVisible(isVisible)
+		if resultsType == "Font" then
+			for _, entry in self._fontEntries do
+				entry:SetVisible(isVisible)
+			end
+		elseif resultsType == "FontStyle" then
+			for _, entry in self._fontStyleEntries do
+				entry:SetVisible(isVisible)
+			end
 		end
 	end):Subscribe())
 end
@@ -727,6 +820,11 @@ function CommandPalette:Render(props)
 
 			local entryPosition = entry:GetYPosition() - framePosition
 			local entrySize = self._entryHeight.Value
+
+			local customResults = self._currentCustomResults.Value
+			if customResults == "Font" or customResults == "FontStyle" then
+				entrySize = entrySize == 45 and 60 or 40
+			end
 
 			local entryBottom = entryPosition + entrySize
 			local newCanvasPosition = canvasPosition
@@ -1231,6 +1329,7 @@ function CommandPalette:Render(props)
 									SearchQuery = self._searchQuery;
 									Tabbed = self._tabbed;
 									Transparency = transparency;
+									TargetFont = self._targetFont;
 
 									Enabled = Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, customResults)
 										if customResults and groupEntry.CustomResultType == customResults then

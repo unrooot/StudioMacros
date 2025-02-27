@@ -20,6 +20,7 @@
     "@quenty/rx": "^13.16.0",
     "@quenty/servicebag": "^11.11.0",
     "@quenty/signal": "^7.10.0",
+    "@quenty/string": "^3.3.0",
     "@quenty/valueobject": "^13.16.0"
   },
   "publishConfig": {
