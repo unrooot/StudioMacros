@@ -834,8 +834,8 @@ function CommandPalette:Render(props)
 
 			if entryBottom > frameSize then
 				newCanvasPosition += entryBottom - frameSize + 1
-			elseif entryPosition < framePosition then
-				newCanvasPosition -= entryPosition
+			elseif entryPosition < 0 then
+				newCanvasPosition += entryPosition
 			end
 
 			if newCanvasPosition ~= canvasPosition then
