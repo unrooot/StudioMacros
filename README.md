@@ -84,6 +84,21 @@ return {
 }
 ```
 
+if your macro needs a package from nevermore, return a function that receives
+the loader's `require` and returns the macro table instead (see
+`WrapXSizeToText.luau` for an example):
+
+```lua
+return function(require)
+	local TextServiceUtils = require("TextServiceUtils")
+
+	return {
+		Name = "Macro Name",
+		-- ...
+	}
+end
+```
+
 ### creating groups
 to create a group of macros, create a new folder inside of the macros folder,
 and create a file called `GroupData.luau` with the following structure:
