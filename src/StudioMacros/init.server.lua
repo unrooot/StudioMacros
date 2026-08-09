@@ -1,3 +1,4 @@
+-- yo
 local modules = script:WaitForChild("modules")
 local loader = script.Parent:FindFirstChild("LoaderUtils", true).Parent
 local require = require(loader).bootstrapPlugin(modules)
@@ -10,6 +11,7 @@ local UserInputService = game:GetService("UserInputService")
 local Blend = require("Blend")
 local CommandGroup = require("CommandGroup")
 local CommandPalette = require("CommandPalette")
+local MacroToast = require("MacroToast")
 local Maid = require("Maid")
 local RxInstanceUtils = require("RxInstanceUtils")
 local ValueObject = require("ValueObject")
@@ -18,6 +20,7 @@ local function initialize(plugin)
 	local maid = Maid.new()
 
 	local pane = maid:Add(CommandPalette.new())
+	local toast = maid:Add(MacroToast.new())
 
 	maid:GiveTask(Blend.New "ScreenGui" {
 		Name = "StudioMacrosCommands";
@@ -25,6 +28,7 @@ local function initialize(plugin)
 		Parent = CoreGui;
 
 		pane:Render();
+		toast:Render();
 	}:Subscribe())
 
 	local uiEditorVisible = maid:Add(ValueObject.new(plugin:GetSetting("UIEditorDisabled") or true))
@@ -50,14 +54,20 @@ local function initialize(plugin)
 		maid:Destroy()
 	end))
 
+	-- Tracks the last macro run so "Repeat Last Macro" can replay it. This is
+	-- shared across every group/macro, so it lives above the group loop.
+	local lastActivated: ((boolean?, ...any) -> ())? = nil
+	local lastArguments: { any }? = nil
+
 	for index, group in script.macros:GetChildren() do
 		if group:IsA("Folder") then
-			local groupData = group:FindFirstChild("GroupData")
-			if not groupData then
+			local groupDataModule = group:FindFirstChild("GroupData")
+			if not groupDataModule then
 				continue
 			end
 
-			local groupEntry = pane:AddGroup(require(groupData))
+			local groupData = require(groupDataModule)
+			local groupEntry = pane:AddGroup(groupData)
 			groupEntry.LayoutOrder.Value = index
 
 			if index ~= 1 then
@@ -75,6 +85,11 @@ local function initialize(plugin)
 				end
 
 				local macroData = require(macro)
+
+				if type(macroData) == "function" then
+					macroData = macroData(require)
+				end
+
 				local pluginAction = plugin:CreatePluginAction(
 					macroData.Name,
 					macroData.Name,
@@ -130,8 +145,18 @@ local function initialize(plugin)
 						return
 					end
 
+					if macro.Name == "RepeatLastMacro" then
+						if lastActivated and lastArguments then
+							lastActivated(leavePaneOpen, table.unpack(lastArguments, 1, lastArguments.n))
+						elseif not leavePaneOpen then
+							pane:Hide()
+						end
+						return
+					end
+
 					if macro.Name == "ToggleUIEditor" then
 						uiEditorVisible.Value = not uiEditorVisible.Value
+						toast:ShowMacro(macroData.Name, groupData.Icon)
 						if not leavePaneOpen then
 							pane:Hide()
 						end
@@ -172,6 +197,11 @@ local function initialize(plugin)
 					end
 
 					local undoRecording
+					local packedArguments = table.pack(...)
+
+					lastActivated = activated
+					lastArguments = packedArguments
+
 					local function startRecording()
 						undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
 						if not undoRecording then
@@ -179,62 +209,76 @@ local function initialize(plugin)
 						end
 					end
 
-					if #selectedInstances > 0 then
-						startRecording()
-						for _, selectedInstance in selectedInstances do
-							if macroData.Predicate then
-								local validInstance = macroData.Predicate(selectedInstance)
-								if not validInstance then
-									print(macroData.Name, "failed predicate", selectedInstance)
-									continue
-								end
-							end
-
-							local newInstance = macroData.Macro(selectedInstance, plugin, ...)
-
-							if not leavePaneOpen then
-								if leaveActiveMacroOpen then
-									pane:SetCustomResults(nil)
-								else
-									pane:Hide()
-								end
-							end
-
-							if newInstance then
-								table.insert(newSelection, newInstance)
-							end
-						end
-					else
-						if not macroData.Predicate then
+					local success, macroError = xpcall(function()
+						if #selectedInstances > 0 then
 							startRecording()
-							local newInstance = macroData.Macro(nil, plugin, ...)
+							for _, selectedInstance in selectedInstances do
+								if macroData.Predicate then
+									local validInstance = macroData.Predicate(selectedInstance)
+									if not validInstance then
+										print(macroData.Name, "failed predicate", selectedInstance)
+										continue
+									end
+								end
 
-							if not leavePaneOpen then
-								if leaveActiveMacroOpen then
-									pane:SetCustomResults(nil)
-								else
-									pane:Hide()
+								local newInstance = macroData.Macro(selectedInstance, plugin, table.unpack(packedArguments, 1, packedArguments.n))
+
+								if not leavePaneOpen then
+									if leaveActiveMacroOpen then
+										pane:SetCustomResults(nil)
+									else
+										pane:Hide()
+									end
+								end
+
+								if newInstance then
+									table.insert(newSelection, newInstance)
 								end
 							end
+						else
+							if not macroData.Predicate then
+								startRecording()
+								local newInstance = macroData.Macro(nil, plugin, table.unpack(packedArguments, 1, packedArguments.n))
 
-							if newInstance then
-								table.insert(newSelection, newInstance)
+								if not leavePaneOpen then
+									if leaveActiveMacroOpen then
+										pane:SetCustomResults(nil)
+									else
+										pane:Hide()
+									end
+								end
+
+								if newInstance then
+									table.insert(newSelection, newInstance)
+								end
 							end
 						end
-					end
 
-					leaveActiveMacroOpen = nil
+						leaveActiveMacroOpen = nil
 
-					if #newSelection > 0 then
-						Selection:Set(newSelection)
-						pane.TargetSelection.Value = newSelection
-					elseif revertSelection then
-						Selection:Set(selectedInstances)
-						pane.TargetSelection.Value = selectedInstances
-					end
+						if #newSelection > 0 then
+							Selection:Set(newSelection)
+							pane.TargetSelection.Value = newSelection
+						elseif revertSelection then
+							Selection:Set(selectedInstances)
+							pane.TargetSelection.Value = selectedInstances
+						end
+					end, debug.traceback)
 
 					if undoRecording then
-						ChangeHistoryService:FinishRecording(undoRecording, Enum.FinishRecordingOperation.Commit)
+						local operation = Enum.FinishRecordingOperation.Cancel
+						if success then
+							operation = Enum.FinishRecordingOperation.Commit
+						end
+						ChangeHistoryService:FinishRecording(undoRecording, operation)
+					end
+
+					if success then
+						toast:ShowMacro(macroData.Name, groupData.Icon)
+					end
+
+					if not success then
+						error(macroError, 0)
 					end
 				end
 
