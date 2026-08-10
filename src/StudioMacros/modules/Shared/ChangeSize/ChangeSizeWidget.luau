@@ -6,10 +6,8 @@ local Selection = game:GetService("Selection")
 local ChangeSizePane = require("ChangeSizePane")
 local ExpressionUtils = require("ExpressionUtils")
 local Maid = require("Maid")
-local cancellableDelay = require("cancellableDelay")
 local getChangeSizeVariables = require("getChangeSizeVariables")
 
-local CLOSE_DELAY = 0.15
 local COMPONENT_KEYS = { "XScale", "XOffset", "YScale", "YOffset" }
 local WIDGET_ID = "StudioMacros_ChangeSize"
 
@@ -31,8 +29,10 @@ function ChangeSizeWidget.new(plugin: Plugin)
 	local self = setmetatable({}, ChangeSizeWidget)
 
 	self._maid = Maid.new()
+	self._lastFocusIndex = 1
 	self._plugin = plugin
 	self._targets = {}
+	self._windowFocused = false
 
 	local widget = plugin:CreateDockWidgetPluginGui(WIDGET_ID, DockWidgetPluginGuiInfo.new(
 		Enum.InitialDockState.Float,
@@ -69,23 +69,33 @@ function ChangeSizeWidget.new(plugin: Plugin)
 		local action = plugin:CreatePluginAction(
 			`Change Size: Focus {fieldName}`,
 			`Change Size: Focus {fieldName}`,
-			`[StudioMacros]: Focus the {fieldName} input in the change size window (bind this to Ctrl+{index}).`,
+			`[StudioMacros]: Focus the {fieldName} input in the change size window, opening it if it isn't already (bind this to Ctrl+{index}).`,
 			"rbxassetid://5972593639",
 			true
 		)
 
 		self._maid:GiveTask(action.Triggered:Connect(function()
-			print(`[ChangeSize] action fired: {fieldName} enabled={widget.Enabled}`)
-
-			if not widget.Enabled then
-				return
-			end
-
-			pane:CaptureFocus(index)
+			self:FocusField(index)
 		end))
 	end
 
+	self._maid:GiveTask(widget.WindowFocused:Connect(function()
+		self._windowFocused = true
+
+		if pane:IsVisible() and not pane:IsFieldFocused() then
+			pane:CaptureFocus(self._lastFocusIndex)
+		end
+	end))
+
+	self._maid:GiveTask(widget.WindowFocusReleased:Connect(function()
+		self._windowFocused = false
+	end))
+
 	self._maid:GiveTask(widget:GetPropertyChangedSignal("Enabled"):Connect(function()
+		if self._isRestoring then
+			return
+		end
+
 		if not widget.Enabled then
 			pane:Hide()
 			pane:Reset()
@@ -101,20 +111,16 @@ function ChangeSizeWidget.new(plugin: Plugin)
 end
 
 function ChangeSizeWidget:Open(target: GuiObject?)
-	print(`[ChangeSize] Open: enabled={self._widget.Enabled} batchHandled={self._batchHandled} batchClosed={self._batchClosed} target={target and target.Name}`)
-
 	if not self._batchHandled then
 		self._batchHandled = true
 		self._batchClosed = self._widget.Enabled
 
 		self._maid._batch = task.defer(function()
-			print("[ChangeSize] batch reset")
 			self._batchHandled = false
 			self._batchClosed = false
 		end)
 
 		if self._batchClosed then
-			print("[ChangeSize] toggling closed")
 			self:Close()
 			return
 		end
@@ -122,24 +128,9 @@ function ChangeSizeWidget:Open(target: GuiObject?)
 		return
 	end
 
-	local targets = {}
-
-	for _, selectedInstance in Selection:Get() do
-		if selectedInstance:IsA("GuiObject") then
-			table.insert(targets, selectedInstance)
-		end
-	end
-
-	if #targets == 0 then
-		if not target then
-			return
-		end
-
-		targets = table.clone(self._targets)
-
-		if not table.find(targets, target) then
-			table.insert(targets, target)
-		end
+	local targets = self:_resolveTargets(target)
+	if not targets then
+		return
 	end
 
 	local isOpen = self._widget.Enabled
@@ -150,19 +141,86 @@ function ChangeSizeWidget:Open(target: GuiObject?)
 		return
 	end
 
-	self._maid._closeTimer = nil
+	self:_show(1)
+end
+
+function ChangeSizeWidget:FocusField(index: number)
+	if self._widget.Enabled and self._pane:IsVisible() then
+		self._lastFocusIndex = index
+
+		self:_raiseWindow()
+		self._pane:CaptureFocus(index)
+
+		return
+	end
+
+	local targets = self:_resolveTargets(nil)
+	if not targets then
+		return
+	end
+
+	self._targets = targets
+	self._pane:SetTarget(targets[1])
+
+	self:_show(index)
+end
+
+function ChangeSizeWidget:_resolveTargets(target: GuiObject?): { GuiObject }?
+	local targets = {}
+
+	for _, selectedInstance in Selection:Get() do
+		if selectedInstance:IsA("GuiObject") then
+			table.insert(targets, selectedInstance)
+		end
+	end
+
+	if #targets > 0 then
+		return targets
+	end
+
+	targets = table.clone(self._targets)
+
+	if target and not table.find(targets, target) then
+		table.insert(targets, target)
+	end
+
+	if #targets == 0 then
+		return nil
+	end
+
+	return targets
+end
+
+function ChangeSizeWidget:_show(focusIndex: number)
+	self._lastFocusIndex = focusIndex
 	self._pane:Reset()
-	self._widget.Enabled = true
+
+	if self._widget.Enabled then
+		self:_raiseWindow()
+	else
+		self._widget.Enabled = true
+	end
+
 	self._pane:Show()
-	self._pane:CaptureFocus(1)
+	self._pane:CaptureFocus(focusIndex)
+end
+
+function ChangeSizeWidget:_raiseWindow()
+	local widget = self._widget
+
+	if not widget.Enabled or self._windowFocused then
+		return
+	end
+
+	self._isRestoring = true
+	widget.Enabled = false
+	widget.Enabled = true
+	self._isRestoring = false
 end
 
 function ChangeSizeWidget:Close()
 	self._pane:Hide()
-
-	self._maid._closeTimer = cancellableDelay(CLOSE_DELAY, function()
-		self._widget.Enabled = false
-	end)
+	self._widget.Enabled = false
 end
 
 function ChangeSizeWidget:_apply(values)

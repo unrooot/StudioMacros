@@ -20,7 +20,10 @@ local AXIS_PADDING = 6
 local DISMISS_ACCEL = 1200
 local REVEAL_ACCEL = 400
 
-local FOCUS_ATTEMPTS = 12
+local FOCUS_HOLD_FRAMES = 3
+local FOCUS_TIMEOUT = 1.5
+
+local PARK_ATTEMPTS = 12
 
 local FIELDS = {
 	{ Axis = "x"; Caption = "scale"; Key = "XScale" };
@@ -113,32 +116,42 @@ function ChangeSizePane:CaptureFocus(index: number?)
 	end
 
 	self._focusAttempt += 1
+	self._isParked = false
 
 	local attempt = self._focusAttempt
 	local originIndex = self:_getFocusedIndex()
 
 	task.spawn(function()
-		for _ = 1, FOCUS_ATTEMPTS do
+		local deadline = os.clock() + FOCUS_TIMEOUT
+		local heldFrames = 0
+
+		while os.clock() < deadline do
 			if attempt ~= self._focusAttempt then
 				return
 			end
 
 			local focusedIndex = self:_getFocusedIndex()
+
 			if focusedIndex == targetIndex then
-				return
-			end
+				heldFrames += 1
 
-			if focusedIndex ~= 0 and focusedIndex ~= originIndex then
-				return
-			end
+				if heldFrames >= FOCUS_HOLD_FRAMES then
+					return
+				end
+			else
+				if focusedIndex ~= 0 and focusedIndex ~= originIndex then
+					return
+				end
 
-			entry:Focus()
+				heldFrames = 0
+				entry:Focus()
+			end
 
 			RunService.RenderStepped:Wait()
 		end
 
 		if attempt == self._focusAttempt and not entry:IsInputFocused() then
-			warn(`[ChangeSize] focus never landed on field {targetIndex} after {FOCUS_ATTEMPTS} frames`)
+			warn(`[StudioMacros]: Change Size focus never landed on field {targetIndex}`)
 		end
 	end)
 end
@@ -165,7 +178,7 @@ function ChangeSizePane:ParkFocus()
 	local attempt = self._focusAttempt
 
 	task.spawn(function()
-		for _ = 1, FOCUS_ATTEMPTS do
+		for _ = 1, PARK_ATTEMPTS do
 			if attempt ~= self._focusAttempt or not self._isParked or keySink:IsFocused() then
 				return
 			end
@@ -187,6 +200,10 @@ function ChangeSizePane:Reset()
 		entry.IsFocused.Value = false
 		entry:SetText("")
 	end
+end
+
+function ChangeSizePane:IsFieldFocused(): boolean
+	return self:_getFocusedIndex() ~= 0
 end
 
 function ChangeSizePane:_getFocusedIndex(): number
