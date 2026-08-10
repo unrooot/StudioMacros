@@ -10,6 +10,9 @@ local Signal = require("Signal")
 local String = require("String")
 local ValueObject = require("ValueObject")
 
+local WEIGHT_MATCH_SCORE = 5
+local WEIGHT_MATCH_TIEBREAK = 0.001
+
 local FontStyleEntry = setmetatable({}, BasicPane)
 FontStyleEntry.ClassName = "FontStyleEntry"
 FontStyleEntry.CustomResultType = "FontStyle"
@@ -129,13 +132,38 @@ function FontStyleEntry:Render(props)
 	local fzyConfig = props.FzyConfig
 	local transparency = props.Transparency
 
-	self._maid:GiveTask(Blend.Computed(self._fontStyleName, self._fontWeightName, props.SearchQuery, function(styleName, weightName, searchQuery)
+	self._maid:GiveTask(Blend.Computed(self._fontStyleName, self._fontWeightName, self._fontWeight, self._defaultIndex, props.SearchQuery, function(styleName, weightName, weight, defaultIndex, searchQuery)
 		if searchQuery == "" then
 			self.SearchScore.Value = nil
 			return
 		end
 
-		self.SearchScore.Value = Fzy.score(fzyConfig, searchQuery, `{string.lower(styleName)} {string.lower(weightName)}`)
+		local query = string.lower(searchQuery)
+		local haystack = `{string.lower(styleName)} {string.lower(weightName)}`
+
+		local digits = string.match(query, "%d+")
+
+		if digits then
+			local weightString = weight and tostring(weight)
+
+			if not weightString or string.sub(weightString, 1, #digits) ~= digits then
+				self.SearchScore.Value = Fzy.getMinScore()
+				return
+			end
+
+			local rest = string.gsub(query, "%d+", " ")
+			rest = string.match(rest, "^%s*(.-)%s*$")
+
+			if rest ~= "" then
+				self.SearchScore.Value = Fzy.score(fzyConfig, rest, haystack)
+			else
+				self.SearchScore.Value = WEIGHT_MATCH_SCORE - defaultIndex * WEIGHT_MATCH_TIEBREAK
+			end
+
+			return
+		end
+
+		self.SearchScore.Value = Fzy.score(fzyConfig, query, haystack)
 	end):Subscribe())
 
 	local isSearching = Blend.Computed(props.SearchQuery, function(searchQuery)
@@ -223,12 +251,22 @@ function FontStyleEntry:Render(props)
 				Size = UDim2.new(1, 0, 0, 15);
 				BackgroundTransparency = 1;
 				FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
+				RichText = isSearching;
 				TextColor3 = Color3.fromRGB(85, 85, 85);
 				TextWrapped = true;
 				TextXAlignment = Enum.TextXAlignment.Right;
 
-				Text = Blend.Computed(self._fontWeight, function(weight)
-					return weight or ""
+				Text = Blend.Computed(self._fontWeight, props.SearchQuery, function(weight, searchQuery)
+					if not weight then
+						return ""
+					end
+
+					local digits = searchQuery ~= "" and string.match(searchQuery, "%d+")
+					if digits then
+						return SearchUtils.getMatchedString(fzyConfig, tostring(weight), digits)
+					end
+
+					return weight
 				end);
 			};
 
