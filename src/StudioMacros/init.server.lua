@@ -64,6 +64,16 @@ local function getToastName(macroData, instance)
 	return macroData.Name
 end
 
+local function appendSelection(newSelection, result)
+	if type(result) == "table" then
+		for _, instance in result do
+			table.insert(newSelection, instance)
+		end
+	elseif result then
+		table.insert(newSelection, result)
+	end
+end
+
 local function initialize(plugin)
 	local maid = Maid.new()
 
@@ -136,6 +146,10 @@ local function initialize(plugin)
 
 				if type(macroData) == "function" then
 					macroData = macroData(require)
+				end
+
+				if macroData.Initialize then
+					macroData.Initialize(plugin)
 				end
 
 				local pluginAction = plugin:CreatePluginAction(
@@ -281,9 +295,7 @@ local function initialize(plugin)
 									end
 								end
 
-								if newInstance then
-									table.insert(newSelection, newInstance)
-								end
+								appendSelection(newSelection, newInstance)
 							end
 						else
 							if not macroData.Predicate then
@@ -298,9 +310,7 @@ local function initialize(plugin)
 									end
 								end
 
-								if newInstance then
-									table.insert(newSelection, newInstance)
-								end
+								appendSelection(newSelection, newInstance)
 							end
 						end
 
