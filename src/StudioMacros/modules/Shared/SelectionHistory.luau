@@ -103,6 +103,16 @@ local function getLiveInstances(entry: { Instance }): { Instance }
 	return live
 end
 
+function SelectionHistory:_applyEntry(index: number, live: { Instance }): { Instance }
+	self._entries[index] = live
+	self._index = index
+
+	local label = if #live == 1 then live[1].Name else `{#live} instances`
+	self._toastValue = `{label} ({self._index}/{#self._entries})`
+
+	return live
+end
+
 function SelectionHistory:_navigate(step: number): { Instance }?
 	if not self:_beginBatch() then
 		return nil
@@ -129,13 +139,7 @@ function SelectionHistory:_navigate(step: number): { Instance }?
 			continue
 		end
 
-		self._entries[nextIndex] = live
-		self._index = nextIndex
-
-		local label = if #live == 1 then live[1].Name else `{#live} instances`
-		self._toastValue = `{label} ({self._index}/{#self._entries})`
-
-		return live
+		return self:_applyEntry(nextIndex, live)
 	end
 end
 
@@ -149,6 +153,28 @@ end
 
 function SelectionHistory:Forward(): { Instance }?
 	return self:_navigate(1)
+end
+
+function SelectionHistory:Latest(): { Instance }?
+	if not self:_beginBatch() then
+		return nil
+	end
+
+	while #self._entries > self._index do
+		local latestIndex = #self._entries
+		local live = getLiveInstances(self._entries[latestIndex])
+
+		if #live == 0 then
+			table.remove(self._entries, latestIndex)
+			continue
+		end
+
+		return self:_applyEntry(latestIndex, live)
+	end
+
+	self._toastValue = "newest"
+
+	return nil
 end
 
 function SelectionHistory:Destroy()
