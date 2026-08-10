@@ -16,6 +16,54 @@ local Maid = require("Maid")
 local RxInstanceUtils = require("RxInstanceUtils")
 local ValueObject = require("ValueObject")
 
+local function getToggleValue(macroData, instance)
+	if not string.find(macroData.Name, "Toggle", 1, true) then
+		return nil
+	end
+
+	if macroData.ToggleValue then
+		return macroData.ToggleValue(instance)
+	end
+
+	if not instance then
+		return nil
+	end
+
+	local property = string.match(macroData.Name, "^Toggle%s+(%S+)$")
+	if not property then
+		return nil
+	end
+
+	local success, value = pcall(function()
+		return instance[property]
+	end)
+
+	if not success then
+		return nil
+	end
+
+	return value
+end
+
+local function getToastValue(macroData, instance)
+	if macroData.ToastValue then
+		return macroData.ToastValue(instance)
+	end
+
+	return getToggleValue(macroData, instance)
+end
+
+local function getToastName(macroData, instance)
+	if macroData.ToastName then
+		local name = macroData.ToastName(instance)
+		if name then
+			return name
+		end
+	end
+
+	return macroData.Name
+end
+
 local function initialize(plugin)
 	local maid = Maid.new()
 
@@ -156,7 +204,7 @@ local function initialize(plugin)
 
 					if macro.Name == "ToggleUIEditor" then
 						uiEditorVisible.Value = not uiEditorVisible.Value
-						toast:ShowMacro(macroData.Name, groupData.Icon)
+						toast:ShowMacro(macroData.Name, groupData.Icon, uiEditorVisible.Value)
 						if not leavePaneOpen then
 							pane:Hide()
 						end
@@ -197,6 +245,7 @@ local function initialize(plugin)
 					end
 
 					local undoRecording
+					local toggledInstance
 					local packedArguments = table.pack(...)
 
 					lastActivated = activated
@@ -222,6 +271,7 @@ local function initialize(plugin)
 								end
 
 								local newInstance = macroData.Macro(selectedInstance, plugin, table.unpack(packedArguments, 1, packedArguments.n))
+								toggledInstance = selectedInstance
 
 								if not leavePaneOpen then
 									if leaveActiveMacroOpen then
@@ -274,7 +324,11 @@ local function initialize(plugin)
 					end
 
 					if success then
-						toast:ShowMacro(macroData.Name, groupData.Icon)
+						toast:ShowMacro(
+							getToastName(macroData, toggledInstance),
+							groupData.Icon,
+							getToastValue(macroData, toggledInstance)
+						)
 					end
 
 					if not success then

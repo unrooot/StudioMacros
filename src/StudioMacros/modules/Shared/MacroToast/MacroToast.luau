@@ -24,16 +24,18 @@ function MacroToast.new()
 	return self
 end
 
-function MacroToast:ShowMacro(macroName: string, groupIcon: string?)
+function MacroToast:ShowMacro(macroName: string, groupIcon: string?, toggleValue: any?)
 	local entries = self._entries:GetList()
 
 	local newest = entries[#entries]
 	if newest and newest:IsVisible() and newest:GetMacroName() == macroName then
+		newest:SetToggleValue(toggleValue)
 		newest:Bump()
 		return
 	end
 
 	local entry = MacroToastEntry.new(macroName, groupIcon)
+	entry:SetToggleValue(toggleValue)
 
 	self._nextLayoutOrder += 1
 	entry.LayoutOrder.Value = self._nextLayoutOrder

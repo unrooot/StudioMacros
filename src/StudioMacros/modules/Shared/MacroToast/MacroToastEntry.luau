@@ -5,12 +5,24 @@ local Blend = require("Blend")
 local Rx = require("Rx")
 local Signal = require("Signal")
 local SpringObject = require("SpringObject")
+local TextServiceUtils = require("TextServiceUtils")
 local ValueObject = require("ValueObject")
 local cancellableDelay = require("cancellableDelay")
 
+local DISMISS_ACCEL = 100
 local DISPLAY_TIME = 1
 local FADE_TIME = 0.3
 local HORIZONTAL_PADDING = 12
+local REVEAL_ACCEL = 400
+
+local CONTENT_GAP = 7
+local FONT_FACE = Font.new("rbxasset://fonts/families/SourceSansPro.json")
+local ICON_SIZE = 15
+local NAME_TEXT_SIZE = 15
+local SWATCH_SIZE = 12
+local VALUE_HEIGHT = 20
+local VALUE_PADDING = 7
+local VALUE_TEXT_SIZE = 13
 
 local IMPULSE_PEAK = 0.1
 local IMPULSE_VELOCITY = 4
@@ -20,6 +32,16 @@ MacroToastEntry.ClassName = "MacroToastEntry"
 MacroToastEntry.Height = 34
 MacroToastEntry.__index = MacroToastEntry
 
+local function formatToggleValue(value): string
+	if typeof(value) == "boolean" then
+		return value and "true" or "false"
+	elseif typeof(value) == "number" then
+		return tostring(math.round(value * 100) / 100)
+	end
+
+	return tostring(value)
+end
+
 function MacroToastEntry.new(macroName: string, groupIcon: string?)
 	local self = setmetatable(BasicPane.new(), MacroToastEntry)
 
@@ -27,6 +49,9 @@ function MacroToastEntry.new(macroName: string, groupIcon: string?)
 	self._impulse = self._maid:Add(SpringObject.new(0, 15, 0.9))
 	self._macroName = self._maid:Add(ValueObject.new(macroName))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._valueColor = self._maid:Add(ValueObject.new(Color3.new()))
+	self._valueKind = self._maid:Add(ValueObject.new("none"))
+	self._valueText = self._maid:Add(ValueObject.new(""))
 
 	self.Finished = self._maid:Add(Signal.new())
 	self.LayoutOrder = self._maid:Add(ValueObject.new(0))
@@ -40,6 +65,20 @@ end
 
 function MacroToastEntry:GetMacroName(): string
 	return self._macroName.Value
+end
+
+function MacroToastEntry:SetToggleValue(value)
+	if value == nil then
+		self._valueKind.Value = "none"
+		self._valueText.Value = ""
+	elseif typeof(value) == "Color3" then
+		self._valueColor.Value = value
+		self._valueKind.Value = "color"
+		self._valueText.Value = ""
+	else
+		self._valueKind.Value = "text"
+		self._valueText.Value = formatToggleValue(value)
+	end
 end
 
 function MacroToastEntry:Present()
@@ -76,7 +115,7 @@ function MacroToastEntry:Render(props)
 	local percentVisible = Blend.Spring(target, 40, 0.7)
 	local percentAlpha = Blend.AccelTween(target, target:Pipe({
 		Rx.map(function(value)
-			return value == 1 and 400 or 2000
+			return value == 1 and REVEAL_ACCEL or DISMISS_ACCEL
 		end)
 	}))
 
@@ -93,6 +132,46 @@ function MacroToastEntry:Render(props)
 
 	local wrapperPosition = Blend.Computed(percentVisible, function(percent)
 		return UDim2.new(0.5, 0, 0.5, (1 - percent) * 20)
+	end)
+
+	local nameSize = TextServiceUtils.observeSizeForLabelProps({
+		FontFace = FONT_FACE;
+		Text = self._macroName;
+		TextSize = NAME_TEXT_SIZE;
+	}):Pipe({
+		Rx.startWith({ Vector2.zero });
+	})
+
+	local valueTextSize = TextServiceUtils.observeSizeForLabelProps({
+		FontFace = FONT_FACE;
+		Text = self._valueText;
+		TextSize = VALUE_TEXT_SIZE;
+	}):Pipe({
+		Rx.startWith({ Vector2.zero });
+	})
+
+	local valueWidth = Blend.Computed(valueTextSize, self._valueKind, function(size, kind)
+		if kind == "color" then
+			return (VALUE_PADDING * 2) + SWATCH_SIZE
+		elseif kind == "text" then
+			return (VALUE_PADDING * 2) + math.ceil(size.X)
+		end
+
+		return 0
+	end)
+
+	local wrapperWidth = Blend.Computed(nameSize, valueWidth, self._groupIcon, function(name, value, icon)
+		local width = (HORIZONTAL_PADDING * 2) + math.ceil(name.X)
+
+		if icon ~= "" then
+			width += ICON_SIZE + CONTENT_GAP
+		end
+
+		if value > 0 then
+			width += CONTENT_GAP + value
+		end
+
+		return width
 	end)
 
 	return Blend.New "Frame" {
@@ -133,10 +212,12 @@ function MacroToastEntry:Render(props)
 		Blend.New "Frame" {
 			Name = "wrapper";
 			AnchorPoint = Vector2.new(0.5, 0.5);
-			AutomaticSize = Enum.AutomaticSize.X;
 			BackgroundTransparency = transparency;
 			Position = wrapperPosition;
-			Size = UDim2.fromOffset(0, MacroToastEntry.Height);
+
+			Size = Blend.Computed(wrapperWidth, function(width)
+				return UDim2.fromOffset(width, MacroToastEntry.Height)
+			end);
 
 			BackgroundColor3 = Blend.Computed(percentFlash, function(percent)
 				return Color3.fromRGB(30, 30, 30):Lerp(Color3.fromRGB(40, 40, 40), percent)
@@ -180,7 +261,7 @@ function MacroToastEntry:Render(props)
 				ImageColor3 = Color3.fromRGB(197, 156, 242);
 				ImageTransparency = transparency;
 				LayoutOrder = 1;
-				Size = UDim2.fromOffset(15, 15);
+				Size = UDim2.fromOffset(ICON_SIZE, ICON_SIZE);
 
 				Visible = Blend.Computed(self._groupIcon, function(icon)
 					return icon ~= ""
@@ -189,16 +270,88 @@ function MacroToastEntry:Render(props)
 
 			Blend.New "TextLabel" {
 				Name = "macroName";
-				AutomaticSize = Enum.AutomaticSize.X;
 				BackgroundTransparency = 1;
-				FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
+				FontFace = FONT_FACE;
 				LayoutOrder = 2;
-				Size = UDim2.fromOffset(0, 15);
 				Text = self._macroName;
 				TextColor3 = Color3.fromRGB(255, 255, 255);
-				TextSize = 15;
+				TextSize = NAME_TEXT_SIZE;
 				TextTransparency = transparency;
 				TextXAlignment = Enum.TextXAlignment.Left;
+
+				Size = Blend.Computed(nameSize, function(size)
+					return UDim2.fromOffset(math.ceil(size.X), NAME_TEXT_SIZE)
+				end);
+			};
+
+			Blend.New "Frame" {
+				Name = "toggleValue";
+				BackgroundColor3 = Color3.fromRGB(25, 25, 25);
+				BackgroundTransparency = transparency;
+				LayoutOrder = 3;
+
+				Size = Blend.Computed(valueWidth, function(width)
+					return UDim2.fromOffset(width, VALUE_HEIGHT)
+				end);
+
+				Visible = Blend.Computed(self._valueKind, function(kind)
+					return kind ~= "none"
+				end);
+
+				Blend.New "UICorner" {
+					CornerRadius = UDim.new(0, 5);
+				};
+
+				Blend.New "UIStroke" {
+					Color = Color3.fromRGB(35, 35, 35);
+					Transparency = transparency;
+				};
+
+				Blend.New "UIListLayout" {
+					FillDirection = Enum.FillDirection.Horizontal;
+					HorizontalAlignment = Enum.HorizontalAlignment.Center;
+					VerticalAlignment = Enum.VerticalAlignment.Center;
+				};
+
+				Blend.New "Frame" {
+					Name = "swatch";
+					BackgroundColor3 = self._valueColor;
+					BackgroundTransparency = transparency;
+					LayoutOrder = 1;
+					Size = UDim2.fromOffset(SWATCH_SIZE, SWATCH_SIZE);
+
+					Visible = Blend.Computed(self._valueKind, function(kind)
+						return kind == "color"
+					end);
+
+					Blend.New "UICorner" {
+						CornerRadius = UDim.new(1, 0);
+					};
+
+					Blend.New "UIStroke" {
+						Color = Color3.fromRGB(85, 85, 85);
+						Transparency = transparency;
+					};
+				};
+
+				Blend.New "TextLabel" {
+					Name = "label";
+					BackgroundTransparency = 1;
+					FontFace = FONT_FACE;
+					LayoutOrder = 2;
+					Text = self._valueText;
+					TextColor3 = Color3.fromRGB(197, 156, 242);
+					TextSize = VALUE_TEXT_SIZE;
+					TextTransparency = transparency;
+
+					Size = Blend.Computed(valueTextSize, function(size)
+						return UDim2.fromOffset(math.ceil(size.X), VALUE_TEXT_SIZE)
+					end);
+
+					Visible = Blend.Computed(self._valueKind, function(kind)
+						return kind == "text"
+					end);
+				};
 			};
 		};
 	}
