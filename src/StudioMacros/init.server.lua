@@ -228,6 +228,11 @@ local function initialize(plugin)
 					local customResults = macroData.CustomResults
 					local arguments = {...}
 					if customResults and #arguments == 0 then
+						if not pane:IsVisible() then
+							pane.TargetSelection.Value = Selection:Get()
+							pane:Show()
+						end
+
 						pane.TargetProperty.Value = macroData.TargetProperty
 						pane:SetCustomResults(customResults)
 						activeMacro = macroData
