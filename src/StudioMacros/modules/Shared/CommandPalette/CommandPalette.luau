@@ -534,28 +534,64 @@ function CommandPalette:_setupColorResults()
 			return
 		end
 
-		if not initialSelection[1][targetProperty] then
+		local function resolveProperty(instance)
+			if type(targetProperty) == "function" then
+				return targetProperty(instance)
+			end
+
+			return targetProperty
+		end
+
+		local function readColor(instance)
+			local property = resolveProperty(instance)
+			if not property then
+				return nil
+			end
+
+			local success, value = pcall(function()
+				return instance[property]
+			end)
+
+			if not success or typeof(value) ~= "Color3" then
+				return nil
+			end
+
+			return value
+		end
+
+		local seedInstance
+		for _, instance in initialSelection do
+			if readColor(instance) then
+				seedInstance = instance
+				break
+			end
+		end
+
+		if not seedInstance then
 			return
 		end
 
-		colorPickerPane:SetColor(initialSelection[1][targetProperty])
+		colorPickerPane:SetColor(readColor(seedInstance))
 
 		-- Undo/redo support
 		maid:GiveTask(ChangeHistoryService.OnUndo:Connect(function()
-			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+			colorPickerPane:SetColor(readColor(seedInstance))
 		end))
 
 		maid:GiveTask(ChangeHistoryService.OnRedo:Connect(function()
-			colorPickerPane:SetColor(initialSelection[1][targetProperty])
+			colorPickerPane:SetColor(readColor(seedInstance))
 		end))
 
 		maid:GiveTask(colorPickerPane:ObserveColor():Subscribe(function(newColor)
-			if not newColor or initialSelection[1][targetProperty] == newColor then
+			if not newColor then
 				return
 			end
 
 			for _, instance in initialSelection do
-				instance[targetProperty] = newColor
+				local current = readColor(instance)
+				if current and current ~= newColor then
+					instance[resolveProperty(instance)] = newColor
+				end
 			end
 		end))
 
