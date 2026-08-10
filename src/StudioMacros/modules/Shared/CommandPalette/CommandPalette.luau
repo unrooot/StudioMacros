@@ -299,19 +299,17 @@ function CommandPalette:_handleInput()
 		end
 
 		if ctrlPressed then
-			for _, inputObject in keysPressed do
-				if inputObject.KeyCode == Enum.KeyCode.J then
-					downPressed = true
-				elseif inputObject.KeyCode == Enum.KeyCode.K then
-					upPressed = true
-				elseif inputObject.KeyCode == Enum.KeyCode.D then
-					self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
-					self._secondaryModel:SetKeyDown(true)
+			if input.KeyCode == Enum.KeyCode.J then
+				downPressed = true
+			elseif input.KeyCode == Enum.KeyCode.K then
+				upPressed = true
+			elseif input.KeyCode == Enum.KeyCode.D then
+				self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
+				self._secondaryModel:SetKeyDown(true)
 
-					self._maid:GiveTask(task.delay(0.1, function()
-						self._secondaryModel:SetKeyDown(false)
-					end))
-				end
+				self._maid:GiveTask(task.delay(0.1, function()
+					self._secondaryModel:SetKeyDown(false)
+				end))
 			end
 		end
 
@@ -1114,6 +1112,19 @@ function CommandPalette:Render(props)
 							end;
 
 							[Blend.OnChange "Text"] = function(text)
+								local strippedText = string.gsub(text, "[\r\n]", "")
+
+								if strippedText ~= text then
+									local cursorPosition = self._input.CursorPosition
+									self._input.Text = strippedText
+
+									if cursorPosition > 0 then
+										self._input.CursorPosition = math.clamp(cursorPosition - (#text - #strippedText), 1, #strippedText + 1)
+									end
+
+									return
+								end
+
 								local safeText = string.gsub(text, "%s+", " ")
 
 								if safeText == " " then
@@ -1128,9 +1139,11 @@ function CommandPalette:Render(props)
 									self._lastSearchQuery = nil
 								end
 
+								local queryChanged = safeText ~= self._searchQuery.Value
+
 								self._searchQuery.Value = safeText
 
-								if #self._entries:GetList() > 0 then
+								if queryChanged and #self._entries:GetList() > 0 then
 									if self._searchQuery.Value ~= "" then
 										self._targetEntryParent.Value = self._entriesFrame
 										self._selectedGroupEntryIndex.Value = 0
