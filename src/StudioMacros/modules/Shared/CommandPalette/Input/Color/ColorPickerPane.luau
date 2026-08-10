@@ -32,7 +32,6 @@ function ColorPickerPane.new()
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._tabInputIndex = self._maid:Add(ValueObject.new(nil))
 	self._targetParent = self._maid:Add(ValueObject.new(nil))
-	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.ColorUpdated = self._maid:Add(Signal.new())
 	self.CurrentColor = self._maid:Add(ValueObject.new(Color3.new(1, 1, 1)))
@@ -101,7 +100,8 @@ function ColorPickerPane:SetColor(color)
 end
 
 function ColorPickerPane:GetYPosition()
-	return self._yPosition.Value
+	local frame = self._frame
+	return frame and math.round(frame.AbsolutePosition.Y) or 0
 end
 
 function ColorPickerPane:_updateCursorPosition(inputObject)
@@ -228,7 +228,6 @@ function ColorPickerPane:Render(props)
 	return Blend.New "Frame" {
 		Name = "ColorPickerPane";
 		BackgroundTransparency = 1;
-		LayoutOrder = -1;
 		LayoutOrder = -9e9;
 		Size = UDim2.new(1, 0, 0, self.Height);
 		Parent = self._targetParent;
@@ -241,12 +240,8 @@ function ColorPickerPane:Render(props)
 			end
 		end);
 
-		[Blend.OnChange "AbsolutePosition"] = function(position)
-			if not self:IsVisible() then
-				return
-			end
-
-			self._yPosition.Value = math.round(position.Y)
+		[Blend.Instance] = function(frame)
+			self._frame = frame
 		end;
 
 		Blend.New "Frame" {

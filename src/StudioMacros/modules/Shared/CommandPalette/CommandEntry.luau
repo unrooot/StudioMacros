@@ -25,7 +25,6 @@ function CommandEntry.new()
 	self._macroName = self._maid:Add(ValueObject.new(""))
 	self._model = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
-	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
 	self.SearchScore = self._maid:Add(ValueObject.new(0))
@@ -67,7 +66,8 @@ function CommandEntry:SetDescription(description: string)
 end
 
 function CommandEntry:GetYPosition()
-	return self._yPosition.Value
+	local frame = self._frame
+	return frame and math.round(frame.AbsolutePosition.Y) or 0
 end
 
 function CommandEntry:SetDefaultIndex(index: number)
@@ -80,8 +80,6 @@ function CommandEntry:SetIsSelected(isSelected: boolean)
 end
 
 function CommandEntry:Render(props)
-	local target = self._percentVisibleTarget:Observe()
-
 	local percentHighlighted = Blend.Spring(self._model:ObservePercentHighlightedTarget(), 35, 0.7)
 	local percentPressed = Blend.Spring(self._model:ObservePercentPressedTarget(), 35, 0.55)
 	local percentSelected = Blend.AccelTween(self._model:ObservePercentChoosenTarget(), 400)
@@ -122,10 +120,35 @@ function CommandEntry:Render(props)
 		return UDim.new(0, height == 45 and 14 or 7)
 	end);
 
+	local isSearching = Blend.Computed(props.SearchQuery, function(searchQuery)
+		return searchQuery ~= ""
+	end);
+
+	local isShown = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, props.CustomResult, props.Enabled, function(isGroupEntry, isCollapsed, searchQuery, searchScore, customResult, isEnabled)
+		if customResult then
+			return isEnabled
+		end
+
+		if isGroupEntry then
+			return searchQuery == ""
+		else
+			if searchQuery ~= "" and searchScore then
+				return searchScore > 0
+			else
+				return not isCollapsed
+			end
+		end
+	end);
+
 	return Blend.New "Frame" {
 		Name = "CommandEntry";
 		BackgroundTransparency = 1;
-		Parent = props.TargetParent;
+
+		Parent = Blend.Computed(props.TargetParent, isShown, function(targetParent, shown)
+			return shown and targetParent or nil
+		end):Pipe({
+			Rx.throttleDefer();
+		});
 
 		LayoutOrder = Blend.Computed(self._isGroupHeader, self.SearchScore, self._defaultIndex, function(isGroupHeader, score, defaultIndex)
 			if isGroupHeader then
@@ -139,32 +162,14 @@ function CommandEntry:Render(props)
 			return UDim2.new(1, 0, 0, height)
 		end);
 
-		Visible = Blend.Computed(self._isGroupHeader, groupCollapsed, props.SearchQuery, self.SearchScore, props.CustomResult, props.Enabled, function(isGroupEntry, isCollapsed, searchQuery, searchScore, customResult, isEnabled)
-			if customResult then
-				return isEnabled
-			end
-
-			if isGroupEntry then
-				return searchQuery == ""
-			else
-				if searchQuery ~= "" and searchScore then
-					return searchScore > 0
-				else
-					return not isCollapsed
-				end
-			end
-		end);
+		Visible = isShown;
 
 		ZIndex = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
 			return score and -(score * 10000) or defaultIndex
 		end);
 
-		[Blend.OnChange "AbsolutePosition"] = function(position)
-			if not self:IsVisible() then
-				return
-			end
-
-			self._yPosition.Value = math.round(position.Y)
+		[Blend.Instance] = function(frame)
+			self._frame = frame
 		end;
 
 		Blend.New "Frame" {
@@ -306,7 +311,7 @@ function CommandEntry:Render(props)
 					BackgroundTransparency = 1;
 					FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 					LayoutOrder = 2;
-					RichText = true;
+					RichText = isSearching;
 					Size = UDim2.new(1, 0, 0, 15);
 					TextColor3 = Color3.fromRGB(255, 255, 255);
 					TextSize = 15;
@@ -328,7 +333,7 @@ function CommandEntry:Render(props)
 					BackgroundTransparency = 1;
 					FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 					LayoutOrder = 2;
-					RichText = true;
+					RichText = isSearching;
 					Size = UDim2.new(1, 0, 0, 15);
 					TextSize = 13;
 					TextTransparency = transparency;
@@ -405,46 +410,6 @@ function CommandEntry:Render(props)
 			end;
 		};
 
-		Blend.New "Frame" {
-			Name = "shortcut";
-			AnchorPoint = Vector2.new(1, 0.5);
-			AutomaticSize = Enum.AutomaticSize.X;
-			BackgroundColor3 = Color3.fromRGB(50, 50, 50);
-			BackgroundTransparency = transparency;
-			LayoutOrder = 3;
-			Position = UDim2.new(1, -7, 0.5, 0);
-			Size = UDim2.fromOffset(0, 20);
-			Visible = false;
-
-			Blend.New "UIPadding" {
-				PaddingBottom = UDim.new(0, 5);
-				PaddingLeft = UDim.new(0, 10);
-				PaddingRight = UDim.new(0, 10);
-				PaddingTop = UDim.new(0, 5);
-			};
-
-			Blend.New "UICorner" {
-				CornerRadius = UDim.new(0, 5);
-			};
-
-			Blend.New "UIStroke" {
-				Color = Color3.fromRGB(35, 35, 35);
-				Transparency = transparency;
-			};
-
-			Blend.New "TextLabel" {
-				Name = "label";
-				AnchorPoint = Vector2.new(0.5, 0.5);
-				AutomaticSize = Enum.AutomaticSize.X;
-				BackgroundTransparency = 1;
-				FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
-				Position = UDim2.fromScale(0.5, 0.5);
-				Size = UDim2.fromOffset(0, 14);
-				Text = "Space";
-				TextColor3 = Color3.fromRGB(110, 110, 110);
-				TextTransparency = transparency;
-			};
-		};
 	}
 end
 

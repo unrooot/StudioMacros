@@ -6,6 +6,7 @@ local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
 local Fzy = require("Fzy")
+local Rx = require("Rx")
 local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
 local ValueObject = require("ValueObject")
@@ -22,7 +23,6 @@ function ColorEntry.new()
 	self._defaultIndex = self._maid:Add(ValueObject.new(0))
 	self._model = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
-	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
 	self.Color = self._maid:Add(ValueObject.new(Color3.new(1, 1, 1)))
@@ -45,7 +45,8 @@ function ColorEntry:SetColor(color: Color3)
 end
 
 function ColorEntry:GetYPosition()
-	return self._yPosition.Value
+	local frame = self._frame
+	return frame and math.round(frame.AbsolutePosition.Y) or 0
 end
 
 function ColorEntry:SetDefaultIndex(index: number)
@@ -88,10 +89,33 @@ function ColorEntry:Render(props)
 		return UDim.new(0, height == 45 and 14 or 10)
 	end);
 
+	local isSearching = Blend.Computed(props.SearchQuery, function(searchQuery)
+		return searchQuery ~= ""
+	end);
+
+	local isShown = Blend.Computed(props.CustomResult, props.Enabled, props.SearchQuery, self.SearchScore, function(customResult, isEnabled, searchQuery, searchScore)
+		if not customResult then
+			return false
+		elseif isEnabled then
+			if searchQuery ~= "" and searchScore then
+				return searchScore > 0
+			else
+				return true
+			end
+		end
+
+		return false
+	end);
+
 	return Blend.New "Frame" {
 		Name = "ColorEntry";
 		BackgroundTransparency = 1;
-		Parent = props.TargetParent;
+
+		Parent = Blend.Computed(props.TargetParent, isShown, function(targetParent, shown)
+			return shown and targetParent or nil
+		end):Pipe({
+			Rx.throttleDefer();
+		});
 
 		LayoutOrder = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
 			return score and -(score * 10000) or defaultIndex
@@ -101,30 +125,14 @@ function ColorEntry:Render(props)
 			return UDim2.new(1, 0, 0, height)
 		end);
 
-		Visible = Blend.Computed(props.CustomResult, props.Enabled, props.SearchQuery, self.SearchScore, function(customResult, isEnabled, searchQuery, searchScore)
-			if not customResult then
-				return false
-			elseif isEnabled then
-				if searchQuery ~= "" and searchScore then
-					return searchScore > 0
-				else
-					return true
-				end
-			end
-
-			return false
-		end);
+		Visible = isShown;
 
 		ZIndex = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
 			return score and -(score * 10000) or defaultIndex
 		end);
 
-		[Blend.OnChange "AbsolutePosition"] = function(position)
-			if not self:IsVisible() then
-				return
-			end
-
-			self._yPosition.Value = math.round(position.Y)
+		[Blend.Instance] = function(frame)
+			self._frame = frame
 		end;
 
 		Blend.New "Frame" {
@@ -189,7 +197,7 @@ function ColorEntry:Render(props)
 					FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 					LayoutOrder = 2;
 					Position = UDim2.fromScale(0, 0.5);
-					RichText = true;
+					RichText = isSearching;
 					Size = UDim2.new(1, 0, 0, 15);
 					TextColor3 = Color3.fromRGB(255, 255, 255);
 					TextSize = 15;

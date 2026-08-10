@@ -4,6 +4,7 @@ local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
 local Fzy = require("Fzy")
+local Rx = require("Rx")
 local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
 local String = require("String")
@@ -27,9 +28,7 @@ function FontStyleEntry.new()
 	self._isItalic = self._maid:Add(ValueObject.new(false))
 	self._model = self._maid:Add(ButtonHighlightModel.new())
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
-	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._styleCount = self._maid:Add(ValueObject.new(0))
-	self._yPosition = self._maid:Add(ValueObject.new(0))
 
 	self.Activated = self._maid:Add(Signal.new())
 	self.SearchScore = self._maid:Add(ValueObject.new(0))
@@ -99,7 +98,8 @@ function FontStyleEntry:SetStyleCount(count: number)
 end
 
 function FontStyleEntry:GetYPosition()
-	return self._yPosition.Value
+	local frame = self._frame
+	return frame and math.round(frame.AbsolutePosition.Y) or 0
 end
 
 function FontStyleEntry:SetDefaultIndex(index: number)
@@ -138,10 +138,33 @@ function FontStyleEntry:Render(props)
 		self.SearchScore.Value = Fzy.score(fzyConfig, searchQuery, `{string.lower(styleName)} {string.lower(weightName)}`)
 	end):Subscribe())
 
+	local isSearching = Blend.Computed(props.SearchQuery, function(searchQuery)
+		return searchQuery ~= ""
+	end);
+
+	local isShown = Blend.Computed(props.CustomResult, props.Enabled, props.SearchQuery, self.SearchScore, function(customResult, isEnabled, searchQuery, searchScore)
+		if not customResult then
+			return false
+		elseif isEnabled then
+			if searchQuery ~= "" and searchScore then
+				return searchScore > 0
+			else
+				return true
+			end
+		end
+
+		return false
+	end);
+
 	return Blend.New "Frame" {
 		Name = "FontStyleEntry";
 		BackgroundTransparency = 1;
-		Parent = props.TargetParent;
+
+		Parent = Blend.Computed(props.TargetParent, isShown, function(targetParent, shown)
+			return shown and targetParent or nil
+		end):Pipe({
+			Rx.throttleDefer();
+		});
 
 		LayoutOrder = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
 			return score and -(score * 10000) or defaultIndex
@@ -155,30 +178,14 @@ function FontStyleEntry:Render(props)
 			end
 		end);
 
-		Visible = Blend.Computed(props.CustomResult, props.Enabled, props.SearchQuery, self.SearchScore, function(customResult, isEnabled, searchQuery, searchScore)
-			if not customResult then
-				return false
-			elseif isEnabled then
-				if searchQuery ~= "" and searchScore then
-					return searchScore > 0
-				else
-					return true
-				end
-			end
-
-			return false
-		end);
+		Visible = isShown;
 
 		ZIndex = Blend.Computed(self.SearchScore, self._defaultIndex, function(score, defaultIndex)
 			return score and -(score * 10000) or defaultIndex
 		end);
 
-		[Blend.OnChange "AbsolutePosition"] = function(position)
-			if not self:IsVisible() then
-				return
-			end
-
-			self._yPosition.Value = math.round(position.Y)
+		[Blend.Instance] = function(frame)
+			self._frame = frame
 		end;
 
 		Blend.New "Frame" {
@@ -242,7 +249,7 @@ function FontStyleEntry:Render(props)
 					BackgroundTransparency = 1;
 					LayoutOrder = 2;
 					Position = UDim2.fromScale(0, 0.5);
-					RichText = true;
+					RichText = isSearching;
 					Size = UDim2.new(1, 0, 0, 20);
 					TextColor3 = Color3.fromRGB(255, 255, 255);
 					TextSize = 20;
@@ -276,7 +283,7 @@ function FontStyleEntry:Render(props)
 					FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 					LayoutOrder = 2;
 					Position = UDim2.fromScale(1, 0.5);
-					RichText = true;
+					RichText = isSearching;
 					Size = UDim2.new(1, 0, 0, 15);
 					TextColor3 = Color3.fromRGB(110, 110, 110);
 					TextWrapped = true;
