@@ -238,8 +238,11 @@ function MacroToastEntry:Render(props)
 			};
 
 			Blend.New "UIStroke" {
-				Color = Color3.fromRGB(40, 40, 40);
 				Transparency = transparency;
+
+				Color = Blend.Computed(percentFlash, function(percent)
+					return Color3.fromRGB(40, 40, 40):Lerp(Color3.fromRGB(55, 55, 55), percent)
+				end);
 			};
 
 			Blend.New "UIPadding" {
