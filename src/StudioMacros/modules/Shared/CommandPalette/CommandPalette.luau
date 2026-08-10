@@ -140,6 +140,35 @@ function CommandPalette:AddGroup(groupData)
 	return groupEntry
 end
 
+function CommandPalette:_tweenCanvasPosition(yPosition: number)
+	if not self._entriesFrame then
+		return
+	end
+
+	if self._scrollTween then
+		self._scrollTween:Cancel()
+		self._scrollTween = nil
+	end
+
+	local tween = TweenService:Create(self._entriesFrame, TWEEN_INFO, {
+		CanvasPosition = Vector2.new(0, yPosition)
+	})
+
+	self._scrollTween = tween
+	tween:Play()
+end
+
+function CommandPalette:_scrollToTop()
+	if self._scrollTween then
+		self._scrollTween:Cancel()
+		self._scrollTween = nil
+	end
+
+	if self._entriesFrame then
+		self._entriesFrame.CanvasPosition = Vector2.zero
+	end
+end
+
 function CommandPalette:SetCustomResults(customResults: string)
 	if not customResults then
 		self._actionText.Value = "select a command..."
@@ -173,6 +202,9 @@ function CommandPalette:SetCustomResults(customResults: string)
 	self._currentCustomResults.Value = customResults
 	self._customResultsEnabled.Value = true
 	self._input.Text = ""
+
+	self:_scrollToTop()
+
 	self._primaryIcon.Value = "rbxassetid://6031091000"
 	self._primaryModel:SetIsChoosen(true)
 
@@ -831,12 +863,18 @@ function CommandPalette:Render(props)
 
 	local percentScrollThickness = Blend.AccelTween(scrollThicknessTarget, 500)
 
-	local containerPercent = Blend.Spring(Blend.Computed(contentHeight, windowHeight, function(content, window)
+	local containerTarget = Blend.Computed(contentHeight, windowHeight, function(content, window)
 		return math.min(content + 92, window)
-	end), 30, 1);
+	end)
 
-	self._maid:GiveTask(Blend.Computed(self._selectedEntry, function(entry)
-		if not self._entriesFrame then
+	local containerPercent = Blend.Spring(containerTarget, 30, 1);
+
+	local layoutSettled = Blend.Computed(percentVisible, containerPercent, containerTarget, function(percent, container, target)
+		return percent > 0.99 and math.abs(container - target) < 1
+	end)
+
+	self._maid:GiveTask(Blend.Computed(self._selectedEntry, layoutSettled, function(entry, isSettled)
+		if not self._entriesFrame or not isSettled then
 			return
 		end
 
@@ -863,9 +901,7 @@ function CommandPalette:Render(props)
 			end
 
 			if newCanvasPosition ~= canvasPosition then
-				TweenService:Create(self._entriesFrame, TWEEN_INFO, {
-					CanvasPosition = Vector2.new(0, newCanvasPosition)
-				}):Play()
+				self:_tweenCanvasPosition(newCanvasPosition)
 			end
 		end
 	end):Subscribe())
