@@ -83,29 +83,50 @@ function CommandGroup:Render(props)
 		end)
 	}))
 
+	local revealedCount = 0
+	local lastEntryCount = 0
+
 	self._maid:GiveTask(Blend.Computed(percentAlpha, function(percent)
 		local entries = self._entries:GetList()
-		local entryCount = math.max(1, #entries)
+		local entryCount = #entries
+		local divisor = math.max(1, entryCount)
 
-		for index, entry in entries do
-			local progress = (index - 1) / entryCount + 1e-2
-			entry:SetVisible(progress <= percent)
+		local target = math.clamp(math.floor((percent - 1e-2) * divisor) + 1, 0, entryCount)
+
+		if entryCount ~= lastEntryCount then
+			lastEntryCount = entryCount
+			revealedCount = 0
+
+			for index, entry in entries do
+				entry:SetVisible(index <= target)
+			end
+
+			revealedCount = target
+			return
 		end
+
+		if target > revealedCount then
+			for index = revealedCount + 1, target do
+				entries[index]:SetVisible(true)
+			end
+		elseif target < revealedCount then
+			for index = revealedCount, target + 1, -1 do
+				entries[index]:SetVisible(false)
+			end
+		end
+
+		revealedCount = target
 	end):Subscribe())
 
 	local transparency = Blend.Computed(percentAlpha, function(percent)
 		return 1 - percent
 	end)
 
-	local targetParent = self._maid:Add(Blend.State(nil))
+	local groupFrame = self._maid:Add(Blend.State(nil))
 
-	self._maid:GiveTask(props.TargetParent:Subscribe(function(target)
-		if target == nil then
-			targetParent.Value = self._groupFrame
-		else
-			targetParent.Value = target
-		end
-	end))
+	local targetParent = Blend.Computed(props.TargetParent, groupFrame, function(target, frame)
+		return target or frame
+	end)
 
 	return Blend.New "Frame" {
 		Name = "CommandGroup";
@@ -130,8 +151,9 @@ function CommandGroup:Render(props)
 			VerticalAlignment = Enum.VerticalAlignment.Center;
 		};
 
-		[Blend.Instance] = function(groupFrame)
-			self._groupFrame = groupFrame
+		[Blend.Instance] = function(frame)
+			self._groupFrame = frame
+			groupFrame.Value = frame
 		end;
 
 		self._entries:ObserveItemsBrio():Pipe({

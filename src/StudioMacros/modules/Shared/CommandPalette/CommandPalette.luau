@@ -780,14 +780,38 @@ function CommandPalette:Render(props)
 		end)
 	}))
 
+	local revealedCount = 0
+	local lastEntryCount = 0
+
 	self._maid:GiveTask(Blend.Computed(percentAlpha, function(percent)
 		local entries = self._entries:GetList()
-		local entryCount = math.max(1, #entries)
+		local entryCount = #entries
+		local divisor = math.max(1, entryCount)
 
-		for index, entry in entries do
-			local progress = (index - 1) / entryCount + 1e-1
-			entry:SetVisible(progress <= percent)
+		local target = math.clamp(math.floor((percent - 1e-1) * divisor) + 1, 0, entryCount)
+
+		if entryCount ~= lastEntryCount then
+			lastEntryCount = entryCount
+
+			for index, entry in entries do
+				entry:SetVisible(index <= target)
+			end
+
+			revealedCount = target
+			return
 		end
+
+		if target > revealedCount then
+			for index = revealedCount + 1, target do
+				entries[index]:SetVisible(true)
+			end
+		elseif target < revealedCount then
+			for index = revealedCount, target + 1, -1 do
+				entries[index]:SetVisible(false)
+			end
+		end
+
+		revealedCount = target
 	end):Subscribe())
 
 	local transparency = Blend.Computed(percentAlpha, function(percent)
