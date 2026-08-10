@@ -11,6 +11,7 @@ local UserInputService = game:GetService("UserInputService")
 local Blend = require("Blend")
 local CommandGroup = require("CommandGroup")
 local CommandPalette = require("CommandPalette")
+local CustomResultsWidget = require("CustomResultsWidget")
 local MacroToast = require("MacroToast")
 local Maid = require("Maid")
 local RxInstanceUtils = require("RxInstanceUtils")
@@ -80,14 +81,24 @@ local function initialize(plugin)
 	local pane = maid:Add(CommandPalette.new())
 	local toast = maid:Add(MacroToast.new())
 
+	pane:SetPlugin(plugin)
+
+	local commandsGui = maid:Add(ValueObject.new(nil))
+
 	maid:GiveTask(Blend.New "ScreenGui" {
 		Name = "StudioMacrosCommands";
 		DisplayOrder = 1000;
 		Parent = CoreGui;
 
-		pane:Render();
+		[Blend.Instance] = function(instance)
+			commandsGui.Value = instance
+		end;
+
 		toast:Render();
 	}:Subscribe())
+
+	maid:GiveTask(pane:Render({ Parent = commandsGui }):Subscribe())
+	maid:Add(CustomResultsWidget.new(plugin, pane))
 
 	local uiEditorVisible = maid:Add(ValueObject.new(plugin:GetSetting("UIEditorDisabled") or true))
 
@@ -104,8 +115,52 @@ local function initialize(plugin)
 			pane:CaptureFocus()
 		end
 
-		pane.TargetSelection.Value = Selection:Get()
+		local selection = Selection:Get()
+
+		if #selection > 0 or not pane:IsVisible() then
+			pane.TargetSelection.Value = selection
+		end
+
 		pane:Show()
+	end))
+
+	local restoringSelection = false
+
+	maid:GiveTask(Selection.SelectionChanged:Connect(function()
+		if restoringSelection or not pane:IsVisible() then
+			return
+		end
+
+		local selection = Selection:Get()
+
+		if #selection > 0 then
+			pane.TargetSelection.Value = selection
+			return
+		end
+
+		local targetSelection = pane.TargetSelection.Value
+		if not targetSelection or #targetSelection == 0 then
+			return
+		end
+
+		local liveSelection = {}
+		for _, selectedInstance in targetSelection do
+			if selectedInstance:IsDescendantOf(game) then
+				table.insert(liveSelection, selectedInstance)
+			end
+		end
+
+		if #liveSelection == 0 then
+			pane.TargetSelection.Value = nil
+			return
+		end
+
+		restoringSelection = true
+		Selection:Set(liveSelection)
+
+		task.defer(function()
+			restoringSelection = false
+		end)
 	end))
 
 	maid:GiveTask(plugin.Unloading:Connect(function()
@@ -228,13 +283,16 @@ local function initialize(plugin)
 					local customResults = macroData.CustomResults
 					local arguments = {...}
 					if customResults and #arguments == 0 then
-						if not pane:IsVisible() then
+						local isNewlyOpened = not pane:IsVisible()
+						local useWidget = isNewlyOpened or pane:IsDocked()
+
+						if isNewlyOpened then
 							pane.TargetSelection.Value = Selection:Get()
 							pane:Show()
 						end
 
 						pane.TargetProperty.Value = macroData.TargetProperty
-						pane:SetCustomResults(customResults)
+						pane:SetCustomResults(customResults, useWidget)
 						activeMacro = macroData
 
 						if leavePaneOpen then

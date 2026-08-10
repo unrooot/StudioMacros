@@ -40,15 +40,25 @@ and press the shortcut to open the command palette.
 * `Shift+Escape` to release focus from the command palette
 * `Tab` and `Shift+Tab` to cycle through custom result inputs (currently only implemented in the color picker)
 
+### custom results
+macros that pick a value (change color, change font, change font style) render
+inline when you run them from the command palette. running one from its own
+shortcut instead opens it in a floating plugin window, so you can keep working
+while it's up — `Esc` closes the window rather than dropping you back into the
+command list.
+
 ### a note on input:
 roblox studio plugins currently do not have a good way of handling input and
 focus (see [here](https://devforum.roblox.com/t/plugins-need-a-way-to-listen-to-app-input/479597))
-so the plugin will not work if the viewport in studio is not focused. this
-means if you select an instance in the explorer, and try to use the command
-palette, despite the UI opening and the textbox being focused, you won't be
-able to type. you can work around this by right clicking the viewport to move
-your camera without deselecting the current instance before opening the command
-palette.
+so the command palette only receives what you type while the viewport is
+focused. opening it activates the plugin to pull focus back into the viewport,
+which is what lets you select an instance in the explorer and start typing
+without clicking anything first. that also takes the mouse for as long as the
+palette is open, so clicking it no longer clears your selection.
+
+if you still land in a state where the textbox looks focused but swallows
+everything you type, right click the viewport to move your camera (this doesn't
+deselect the current instance) before opening the command palette.
 
 ---
 

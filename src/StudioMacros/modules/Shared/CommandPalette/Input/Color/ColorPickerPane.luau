@@ -6,6 +6,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
+local Maid = require("Maid")
 local Rx = require("Rx")
 local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
@@ -13,6 +14,10 @@ local SpringObject = require("SpringObject")
 local ValueObject = require("ValueObject")
 
 local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+local SLIDER_COUNT = 3
+local SLIDER_PADDING = 10
+local SLIDER_WIDTH = 16
 
 local ColorPickerPane = setmetatable({}, BasicPane)
 ColorPickerPane.ClassName = "ColorPickerPane"
@@ -73,19 +78,21 @@ function ColorPickerPane.new()
 			return
 		end
 
+		if self._pluginGui then
+			return
+		end
+
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			if self.DraggingHue then
-				self:_updateHuePosition(input)
-			elseif self.DraggingBrightness then
-				self:_updateBrightnessPosition(input)
-			elseif self.DraggingCursor then
-				self:_updateCursorPosition(input)
-			end
+			self:_updateDragPosition(Vector2.new(input.Position.X, input.Position.Y))
 		end
 	end))
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
 		self._percentVisibleTarget.Value = isVisible and 1 or 0
+
+		if not isVisible then
+			self:_endDrag()
+		end
 	end))
 
 	return self
@@ -104,13 +111,76 @@ function ColorPickerPane:GetYPosition()
 	return frame and math.round(frame.AbsolutePosition.Y) or 0
 end
 
-function ColorPickerPane:_updateCursorPosition(inputObject)
+function ColorPickerPane:SetPluginGui(pluginGui: PluginGui?)
+	self._pluginGui = pluginGui
+
+	if not pluginGui then
+		self._maid._drag = nil
+	end
+end
+
+function ColorPickerPane:_beginDrag(dragType: string, inputObject)
+	self._dragging = dragType
+	self:_updateDragPosition(Vector2.new(inputObject.Position.X, inputObject.Position.Y))
+
+	local pluginGui = self._pluginGui
+	if not pluginGui then
+		return
+	end
+
+	local dragMaid = Maid.new()
+	self._maid._drag = dragMaid
+
+	dragMaid:GiveTask(RunService.RenderStepped:Connect(function()
+		if not self._dragging or inputObject.UserInputState == Enum.UserInputState.End then
+			self:_endDrag()
+			return
+		end
+
+		self:_updateDragPosition(pluginGui:GetRelativeMousePosition())
+	end))
+
+	dragMaid:GiveTask(UserInputService.InputEnded:Connect(function(input)
+		if self:_isValidInput(input) then
+			self:_endDrag()
+		end
+	end))
+
+	dragMaid:GiveTask(pluginGui.WindowFocusReleased:Connect(function()
+		self:_endDrag()
+	end))
+end
+
+function ColorPickerPane:_endDrag()
+	self._maid._drag = nil
+
+	if not self._dragging then
+		return
+	end
+
+	self._dragging = nil
+	self.ColorUpdated:Fire(self.CurrentColor.Value)
+end
+
+function ColorPickerPane:_updateDragPosition(position: Vector2)
+	if self._dragging == "Hue" then
+		self:_updateHuePosition(position)
+	elseif self._dragging == "Saturation" then
+		self:_updateSaturationPosition(position)
+	elseif self._dragging == "Brightness" then
+		self:_updateBrightnessPosition(position)
+	elseif self._dragging == "Cursor" then
+		self:_updateCursorPosition(position)
+	end
+end
+
+function ColorPickerPane:_updateCursorPosition(position: Vector2)
 	if not self._color then
 		return
 	end
 
-	local relativeX = inputObject.Position.X - self._color.AbsolutePosition.X
-	local relativeY = inputObject.Position.Y - self._color.AbsolutePosition.Y
+	local relativeX = position.X - self._color.AbsolutePosition.X
+	local relativeY = position.Y - self._color.AbsolutePosition.Y
 
 	local saturation = math.abs(math.clamp(relativeX / self._color.AbsoluteSize.X, 0, 1) - 1)
 	local value = math.abs(math.clamp(relativeY / self._color.AbsoluteSize.Y, 0, 1) - 1)
@@ -119,23 +189,34 @@ function ColorPickerPane:_updateCursorPosition(inputObject)
 	self._currentBrightness.Value = value
 end
 
-function ColorPickerPane:_updateHuePosition(inputObject)
+function ColorPickerPane:_updateHuePosition(position: Vector2)
 	if not self._hue then
 		return
 	end
 
-	local relativeY = inputObject.Position.Y - self._hue.AbsolutePosition.Y
+	local relativeY = position.Y - self._hue.AbsolutePosition.Y
 	local hue = math.clamp(relativeY / self._hue.AbsoluteSize.Y, 0, 1)
 
 	self._currentHue.Value = hue
 end
 
-function ColorPickerPane:_updateBrightnessPosition(inputObject)
+function ColorPickerPane:_updateSaturationPosition(position: Vector2)
+	if not self._saturation then
+		return
+	end
+
+	local relativeY = position.Y - self._saturation.AbsolutePosition.Y
+	local saturation = math.clamp(relativeY / self._saturation.AbsoluteSize.Y, 0, 1)
+
+	self._currentSaturation.Value = math.abs(1 - saturation)
+end
+
+function ColorPickerPane:_updateBrightnessPosition(position: Vector2)
 	if not self._brightness then
 		return
 	end
 
-	local relativeY = inputObject.Position.Y - self._brightness.AbsolutePosition.Y
+	local relativeY = position.Y - self._brightness.AbsolutePosition.Y
 	local value = math.clamp(relativeY / self._brightness.AbsoluteSize.Y, 0, 1)
 
 	self._currentBrightness.Value = math.abs(1 - value)
@@ -253,7 +334,7 @@ function ColorPickerPane:Render(props)
 				FillDirection = Enum.FillDirection.Horizontal;
 				HorizontalAlignment = Enum.HorizontalAlignment.Center;
 				HorizontalFlex = Enum.UIFlexAlignment.Fill;
-				Padding = UDim.new(0, 6);
+				Padding = UDim.new(0, 10);
 				VerticalAlignment = Enum.VerticalAlignment.Center;
 			};
 
@@ -352,15 +433,13 @@ function ColorPickerPane:Render(props)
 
 					[Blend.OnEvent "InputBegan"] = function(input)
 						if self:_isValidInput(input) then
-							self.DraggingCursor = true
-							self:_updateCursorPosition(input)
+							self:_beginDrag("Cursor", input)
 						end
 					end;
 
 					[Blend.OnEvent "InputEnded"] = function(input)
 						if self:_isValidInput(input) then
-							self.DraggingCursor = false
-							self.ColorUpdated:Fire(self.CurrentColor.Value)
+							self:_endDrag()
 						end
 					end;
 				};
@@ -447,18 +526,26 @@ function ColorPickerPane:Render(props)
 				Name = "sliders";
 				BackgroundTransparency = 1;
 				LayoutOrder = 3;
-				Position = UDim2.fromScale(0.5, 0);
-				Size = UDim2.new(0, 40, 1, 0);
 				ZIndex = 2;
 
-				Blend.New "UIFlexItem" { };
+				Size = UDim2.new(0, SLIDER_COUNT * SLIDER_WIDTH + (SLIDER_COUNT - 1) * SLIDER_PADDING, 1, 0);
+
+				Blend.New "UIFlexItem" {
+					FlexMode = Enum.UIFlexMode.None;
+				};
+
+				Blend.New "UIListLayout" {
+					FillDirection = Enum.FillDirection.Horizontal;
+					HorizontalAlignment = Enum.HorizontalAlignment.Center;
+					Padding = UDim.new(0, SLIDER_PADDING);
+					VerticalAlignment = Enum.VerticalAlignment.Center;
+				};
 
 				Blend.New "Frame" {
 					Name = "hue";
-					AnchorPoint = Vector2.new(0, 1);
 					BackgroundTransparency = 1;
-					Position = UDim2.fromScale(0, 1);
-					Size = UDim2.new(0, 16, 1, 0);
+					LayoutOrder = 1;
+					Size = UDim2.new(0, SLIDER_WIDTH, 1, 0);
 
 					Blend.New "Frame" {
 						Name = "container";
@@ -540,15 +627,95 @@ function ColorPickerPane:Render(props)
 
 						[Blend.OnEvent "InputBegan"] = function(input)
 							if self:_isValidInput(input) then
-								self.DraggingHue = true
-								self:_updateHuePosition(input)
+								self:_beginDrag("Hue", input)
 							end
 						end;
 
 						[Blend.OnEvent "InputEnded"] = function(input)
 							if self:_isValidInput(input) then
-								self.DraggingHue = false
-								self.ColorUpdated:Fire(self.CurrentColor.Value)
+								self:_endDrag()
+							end
+						end;
+					};
+				};
+
+				Blend.New "Frame" {
+					Name = "saturation";
+					BackgroundTransparency = 1;
+					LayoutOrder = 2;
+					Size = UDim2.new(0, SLIDER_WIDTH, 1, 0);
+
+					Blend.New "Frame" {
+						Name = "container";
+						BackgroundTransparency = transparency;
+						Size = UDim2.fromScale(1, 1);
+						ZIndex = 2;
+
+						Blend.New "UIStroke" {
+							Color = Color3.fromRGB(40, 40, 40);
+							Transparency = transparency;
+						};
+
+						Blend.New "UICorner" {
+							CornerRadius = UDim.new(0, 3);
+						};
+
+						Blend.New "UIGradient" {
+							Rotation = 90;
+
+							Color = Blend.Computed(percentHue, percentBrightness, function(hue, brightness)
+								hue, brightness = math.clamp(hue, 0, 1), math.clamp(brightness, 0, 1)
+								return ColorSequence.new(Color3.fromHSV(hue, 1, brightness), Color3.fromHSV(hue, 0, brightness));
+							end);
+						};
+
+						Blend.New "Frame" {
+							Name = "cursor";
+							AnchorPoint = Vector2.new(0.5, 0.5);
+							BackgroundTransparency = transparency;
+							Size = UDim2.fromScale(1.2, 1);
+
+							Position = Blend.Computed(percentSaturation, function(percent)
+								return UDim2.fromScale(0.5, 1 - percent)
+							end);
+
+							Blend.New "UIAspectRatioConstraint" {
+								AspectRatio = 2.5;
+							};
+
+							Blend.New "UICorner" {
+								CornerRadius = UDim.new(0, 2);
+							};
+
+							Blend.New "UIStroke" {
+								Color = Color3.fromRGB(230, 230, 230);
+								Transparency = transparency;
+							};
+						};
+					};
+
+					Blend.New "TextButton" {
+						Name = "button";
+						Size = UDim2.fromScale(1, 1);
+						BackgroundColor3 = Color3.fromRGB(163, 162, 165);
+						BackgroundTransparency = 1;
+						TextColor3 = Color3.fromRGB(27, 42, 53);
+						TextSize = 8;
+						ZIndex = 5;
+
+						[Blend.Instance] = function(instance)
+							self._saturation = instance
+						end;
+
+						[Blend.OnEvent "InputBegan"] = function(input)
+							if self:_isValidInput(input) then
+								self:_beginDrag("Saturation", input)
+							end
+						end;
+
+						[Blend.OnEvent "InputEnded"] = function(input)
+							if self:_isValidInput(input) then
+								self:_endDrag()
 							end
 						end;
 					};
@@ -556,10 +723,9 @@ function ColorPickerPane:Render(props)
 
 				Blend.New "Frame" {
 					Name = "brightness";
-					Position = UDim2.fromScale(1, 1);
-					AnchorPoint = Vector2.new(1, 1);
-					Size = UDim2.new(0, 16, 1, 0);
 					BackgroundTransparency = 1;
+					LayoutOrder = 3;
+					Size = UDim2.new(0, SLIDER_WIDTH, 1, 0);
 
 					Blend.New "Frame" {
 						Name = "container";
@@ -624,15 +790,13 @@ function ColorPickerPane:Render(props)
 
 						[Blend.OnEvent "InputBegan"] = function(input)
 							if self:_isValidInput(input) then
-								self.DraggingBrightness = true
-								self:_updateBrightnessPosition(input)
+								self:_beginDrag("Brightness", input)
 							end
 						end;
 
 						[Blend.OnEvent "InputEnded"] = function(input)
 							if self:_isValidInput(input) then
-								self.DraggingBrightness = false
-								self.ColorUpdated:Fire(self.CurrentColor.Value)
+								self:_endDrag()
 							end
 						end;
 					};

@@ -28,6 +28,9 @@ local ValueObject = require("ValueObject")
 local FZY_CONFIG = Fzy.createConfig()
 local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
+local KEY_DEBOUNCE = 0.05
+local FOCUS_TIMEOUT = 1.5
+
 local CommandPalette = setmetatable({}, BasicPane)
 CommandPalette.ClassName = "CommandPalette"
 CommandPalette.__index = CommandPalette
@@ -36,10 +39,16 @@ function CommandPalette.new()
 	local self = setmetatable(BasicPane.new(), CommandPalette)
 
 	self._groupMap = {}
+	self._keysDown = {}
+	self._lastKeyHandled = {}
+	self._staleKeys = {}
+	self._focusAttempt = 0
+	self._pluginActive = false
 
 	self._actionText = self._maid:Add(ValueObject.new("select a command..."))
 	self._currentCustomResults = self._maid:Add(ValueObject.new(nil))
 	self._customResultsEnabled = self._maid:Add(ValueObject.new(false))
+	self._dockTarget = self._maid:Add(ValueObject.new(nil))
 	self._entries = self._maid:Add(ObservableList.new())
 	self._entriesOffset = self._maid:Add(ValueObject.new(0))
 	self._entryHeight = self._maid:Add(ValueObject.new(45))
@@ -57,6 +66,7 @@ function CommandPalette.new()
 	self._tabbed = self._maid:Add(Signal.new())
 	self._targetEntryParent = self._maid:Add(ValueObject.new(nil))
 	self._targetFont = self._maid:Add(ValueObject.new(nil))
+	self._widgetRequested = self._maid:Add(ValueObject.new(false))
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())
 	self.CustomResultsReset = self._maid:Add(Signal.new())
@@ -66,7 +76,19 @@ function CommandPalette.new()
 	self:_handleInput()
 	self:_setupSearch()
 
+	self._maid:GiveTask(function()
+		self:_setPluginActive(false)
+	end)
+
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
+		self:_updatePluginActivation()
+
+		table.clear(self._keysDown)
+
+		if isVisible then
+			self:_markStaleKeys()
+		end
+
 		if self._input then
 			if isVisible then
 				self:CaptureFocus()
@@ -93,6 +115,30 @@ function CommandPalette.new()
 	end))
 
 	return self
+end
+
+function CommandPalette:SetPlugin(plugin: Plugin)
+	self._plugin = plugin
+
+	self:_updatePluginActivation()
+end
+
+function CommandPalette:_updatePluginActivation()
+	self:_setPluginActive(self:IsVisible() and not self:IsDocked())
+end
+
+function CommandPalette:_setPluginActive(isActive: boolean)
+	if not self._plugin or isActive == self._pluginActive then
+		return
+	end
+
+	self._pluginActive = isActive
+
+	if isActive then
+		self._plugin:Activate(true)
+	else
+		self._plugin:Deactivate()
+	end
 end
 
 function CommandPalette:AddGroup(groupData)
@@ -140,6 +186,34 @@ function CommandPalette:AddGroup(groupData)
 	return groupEntry
 end
 
+function CommandPalette:SetDockTarget(dockTarget: Instance?)
+	if self._dockTarget.Value == dockTarget then
+		return
+	end
+
+	table.clear(self._keysDown)
+
+	self._dockTarget.Value = dockTarget
+
+	if not dockTarget then
+		self:_markStaleKeys()
+	end
+
+	self:_updatePluginActivation()
+end
+
+function CommandPalette:IsDocked(): boolean
+	return self._dockTarget.Value ~= nil
+end
+
+function CommandPalette:ObserveCustomResults()
+	return self._currentCustomResults:Observe()
+end
+
+function CommandPalette:ObserveWidgetRequested()
+	return self._widgetRequested:Observe()
+end
+
 function CommandPalette:_tweenCanvasPosition(yPosition: number)
 	if not self._entriesFrame then
 		return
@@ -169,7 +243,9 @@ function CommandPalette:_scrollToTop()
 	end
 end
 
-function CommandPalette:SetCustomResults(customResults: string)
+function CommandPalette:SetCustomResults(customResults: string, useWidget: boolean?)
+	self._widgetRequested.Value = customResults ~= nil and useWidget == true
+
 	if not customResults then
 		self._actionText.Value = "select a command..."
 		self._currentCustomResults.Value = nil
@@ -265,175 +341,279 @@ function CommandPalette:SetCustomResults(customResults: string)
 end
 
 function CommandPalette:_handleInput()
-	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input, gpe)
-		local keysPressed = UserInputService:GetKeysPressed()
-		local upPressed, downPressed, ctrlPressed = false, false, false
-		local shiftPressed = false
-		local tabPressed = false
-
-		if input.KeyCode == Enum.KeyCode.Up then
-			upPressed = true
-		elseif input.KeyCode == Enum.KeyCode.Down then
-			downPressed = true
+	self._maid:GiveTask(UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			self._staleKeys[input.KeyCode] = nil
 		end
 
-		for _, inputObject in keysPressed do
-			if inputObject.KeyCode == Enum.KeyCode.LeftControl or inputObject.KeyCode == Enum.KeyCode.RightControl then
-				ctrlPressed = true
-			elseif inputObject.KeyCode == Enum.KeyCode.LeftShift then
-				shiftPressed = true
-			elseif inputObject.KeyCode == Enum.KeyCode.Tab then
-				tabPressed = true
-			end
-		end
-
-		if tabPressed then
-			if self._inputFocused.Value then
-				self._tabbed:Fire()
-				task.spawn(function()
-					RunService.RenderStepped:Wait()
-					local inputText = self._input.Text
-					self._input.Text = string.sub(inputText, 0, #inputText - 1)
-				end)
-			end
-		end
-
-		if ctrlPressed then
-			if input.KeyCode == Enum.KeyCode.J then
-				downPressed = true
-			elseif input.KeyCode == Enum.KeyCode.K then
-				upPressed = true
-			elseif input.KeyCode == Enum.KeyCode.D then
-				self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
-				self._secondaryModel:SetKeyDown(true)
-
-				self._maid:GiveTask(task.delay(0.1, function()
-					self._secondaryModel:SetKeyDown(false)
-				end))
-			end
-		end
-
-		if input.KeyCode == Enum.KeyCode.Escape then
-			if self._customResultsEnabled.Value then
-				if self._input.Text == "" then
-					if shiftPressed then
-						self._input:ReleaseFocus()
-					else
-						self._primaryModel:SetKeyDown(true)
-						self._maid:GiveTask(task.delay(0.1, function()
-							self._primaryModel:SetKeyDown(false)
-						end))
-
-						self:SetCustomResults(nil)
-					end
-				else
-					if shiftPressed then
-						self._input:ReleaseFocus()
-					else
-						self._input.Text = ""
-						self:CaptureFocus()
-					end
-				end
-			else
-				if shiftPressed then
-					self._input:ReleaseFocus()
-				else
-					if self._input.Text == "" then
-						self:Hide()
-					else
-						self._input.Text = ""
-						self:CaptureFocus()
-					end
-				end
-			end
-		elseif upPressed or downPressed then
-			if self._searchQuery.Value ~= "" then
-				self._selectedGroupEntryIndex.Value = 0
-
-				local selectedEntryIndex = self._selectedEntryIndex.Value
-				if upPressed and selectedEntryIndex - 1 > 0 then
-					self._selectedEntryIndex.Value -= 1
-				elseif downPressed and selectedEntryIndex + 1 <= #self._searchEntries:GetList() then
-					self._selectedEntryIndex.Value += 1
-				end
-
-				return
-			end
-
-			local customResultsEnabled = self._customResultsEnabled.Value
-
-			local selectedEntry = self._selectedEntryIndex.Value
-			local selectedGroup = self._selectedGroupEntryIndex.Value
-			local groupEntries = self._groupMap
-
-			if not customResultsEnabled and selectedGroup == 0 and selectedEntry == 0 then
-				if upPressed then
-					-- self._selectedGroupEntryIndex.Value = #groupEntries
-				else
-					self._selectedGroupEntryIndex.Value += 1
-				end
-				return
-			end
-
-			local currentGroup = groupEntries[selectedGroup]
-			if not currentGroup then
-				return
-			end
-
-			local currentGroupEntries
-			if not customResultsEnabled then
-				currentGroupEntries = #currentGroup:GetEntries() - 1
-			else
-				local customResultType = self._currentCustomResults.Value
-				if customResultType == "Color" then
-					currentGroupEntries = #self._colorEntries - 1
-				elseif customResultType == "Font" then
-					currentGroupEntries = #self._fontEntries - 1
-				elseif customResultType == "FontStyle" then
-					currentGroupEntries = #self._fontStyleEntries - 1
-				end
-			end
-
-			if upPressed then
-				if not customResultsEnabled then
-					if selectedEntry - 1 >= 0 and not currentGroup:IsCollapsed() then
-						self._selectedEntryIndex.Value -= 1
-					elseif selectedEntry == 0 then
-						if selectedGroup - 1 <= 0 then
-							-- self._selectedGroupEntryIndex.Value = #groupEntries
-							return
-						else
-							self._selectedGroupEntryIndex.Value -= 1
-						end
-
-						local newGroup = groupEntries[self._selectedGroupEntryIndex.Value]
-						if newGroup:IsCollapsed() then
-							self._selectedEntryIndex.Value = 0
-						else
-							self._selectedEntryIndex.Value = #newGroup:GetEntries() - 1
-						end
-					end
-				else
-					if selectedEntry - 1 >= 0 then
-						self._selectedEntryIndex.Value -= 1
-					end
-				end
-			else
-				if not customResultsEnabled then
-					if selectedEntry + 1 <= currentGroupEntries and not currentGroup:IsCollapsed() then
-						self._selectedEntryIndex.Value += 1
-					elseif ((selectedEntry + 1 > currentGroupEntries) or currentGroup:IsCollapsed()) and selectedGroup + 1 <= #groupEntries then
-						self._selectedEntryIndex.Value = 0
-						self._selectedGroupEntryIndex.Value += 1
-					end
-				else
-					if selectedEntry + 1 <= currentGroupEntries then
-						self._selectedEntryIndex.Value += 1
-					end
-				end
-			end
-		end
+		self:_handleKeyInput(input)
 	end))
+end
+
+function CommandPalette:_markStaleKeys()
+	table.clear(self._staleKeys)
+
+	for _, inputObject in UserInputService:GetKeysPressed() do
+		self._staleKeys[inputObject.KeyCode] = true
+	end
+end
+
+function CommandPalette:_isKeyDown(keyCode: Enum.KeyCode): boolean
+	local heldInput = self._keysDown[keyCode]
+	if heldInput then
+		if heldInput.UserInputState == Enum.UserInputState.End then
+			self._keysDown[keyCode] = nil
+		else
+			return true
+		end
+	end
+
+	if self:IsDocked() then
+		return false
+	end
+
+	if self._staleKeys[keyCode] then
+		return false
+	end
+
+	for _, inputObject in UserInputService:GetKeysPressed() do
+		if inputObject.KeyCode == keyCode then
+			return true
+		end
+	end
+
+	return false
+end
+
+function CommandPalette:_handleCatcherInputBegan(input: InputObject)
+	if input.UserInputType == Enum.UserInputType.Keyboard and self:IsDocked() then
+		self._keysDown[input.KeyCode] = input
+	end
+
+	self:_handleKeyInput(input)
+end
+
+function CommandPalette:_handleCatcherInputEnded(input: InputObject)
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		self._keysDown[input.KeyCode] = nil
+	end
+end
+
+function CommandPalette:_shouldHandleKey(keyCode: Enum.KeyCode): boolean
+	local now = os.clock()
+	local lastHandled = self._lastKeyHandled[keyCode]
+
+	if lastHandled and now - lastHandled < KEY_DEBOUNCE then
+		return false
+	end
+
+	self._lastKeyHandled[keyCode] = now
+
+	return true
+end
+
+local function isTypingKey(keyCode: Enum.KeyCode): boolean
+	local value = keyCode.Value
+
+	return (value >= 97 and value <= 122) or (value >= 48 and value <= 57) or value == 32
+end
+
+function CommandPalette:_handleKeyInput(input: InputObject)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then
+		return
+	end
+
+	if not self._input then
+		return
+	end
+
+	if self:IsVisible() and isTypingKey(input.KeyCode) and not self._input:IsFocused() then
+		local focusedTextBox = UserInputService:GetFocusedTextBox()
+
+		if not focusedTextBox and self._input.Visible then
+			self._input:CaptureFocus()
+		end
+	end
+
+	local keyCode = input.KeyCode
+	if not self:_shouldHandleKey(keyCode) then
+		return
+	end
+
+	local ctrlPressed = self:_isKeyDown(Enum.KeyCode.LeftControl) or self:_isKeyDown(Enum.KeyCode.RightControl)
+	local shiftPressed = self:_isKeyDown(Enum.KeyCode.LeftShift) or self:_isKeyDown(Enum.KeyCode.RightShift)
+
+	local upPressed = keyCode == Enum.KeyCode.Up
+	local downPressed = keyCode == Enum.KeyCode.Down
+
+	if keyCode == Enum.KeyCode.Tab then
+		self:_handleTab()
+	end
+
+	if ctrlPressed then
+		if keyCode == Enum.KeyCode.J then
+			downPressed = true
+		elseif keyCode == Enum.KeyCode.K then
+			upPressed = true
+		elseif keyCode == Enum.KeyCode.D then
+			self._entryHeight.Value = self._entryHeight.Value == 45 and 30 or 45
+			self._secondaryModel:SetKeyDown(true)
+
+			self._maid:GiveTask(task.delay(0.1, function()
+				self._secondaryModel:SetKeyDown(false)
+			end))
+		end
+	end
+
+	if keyCode == Enum.KeyCode.Escape then
+		self:_handleEscape(shiftPressed)
+	elseif upPressed or downPressed then
+		self:_handleNavigation(upPressed, downPressed)
+	end
+end
+
+function CommandPalette:_handleTab()
+	if not self._inputFocused.Value then
+		return
+	end
+
+	self._tabbed:Fire()
+
+	task.spawn(function()
+		RunService.RenderStepped:Wait()
+
+		if self._input then
+			self._input.Text = (string.gsub(self._input.Text, "\t", ""))
+		end
+	end)
+end
+
+function CommandPalette:_handleEscape(shiftPressed: boolean)
+	if shiftPressed and self._input:IsFocused() then
+		self._input:ReleaseFocus()
+		return
+	end
+
+	if self._input.Text ~= "" then
+		self._input.Text = ""
+		self:CaptureFocus()
+		return
+	end
+
+	if self._customResultsEnabled.Value and not self:IsDocked() then
+		self._primaryModel:SetKeyDown(true)
+
+		self._maid:GiveTask(task.delay(0.1, function()
+			self._primaryModel:SetKeyDown(false)
+		end))
+
+		self:SetCustomResults(nil)
+		return
+	end
+
+	self:Hide()
+end
+
+function CommandPalette:_handleNavigation(upPressed: boolean, downPressed: boolean)
+	if self._searchQuery.Value ~= "" then
+		self._selectedGroupEntryIndex.Value = 0
+
+		local count = #self._searchEntries:GetList()
+		local selectedEntryIndex = math.clamp(self._selectedEntryIndex.Value, 1, math.max(count, 1))
+
+		if upPressed and selectedEntryIndex - 1 > 0 then
+			self._selectedEntryIndex.Value = selectedEntryIndex - 1
+		elseif downPressed and selectedEntryIndex + 1 <= count then
+			self._selectedEntryIndex.Value = selectedEntryIndex + 1
+		else
+			self._selectedEntryIndex.Value = selectedEntryIndex
+		end
+
+		return
+	end
+
+	local customResultsEnabled = self._customResultsEnabled.Value
+
+	local selectedEntry = self._selectedEntryIndex.Value
+	local selectedGroup = self._selectedGroupEntryIndex.Value
+	local groupEntries = self._groupMap
+
+	local currentGroup
+	local currentGroupEntries
+
+	if not customResultsEnabled then
+		if selectedGroup == 0 and selectedEntry == 0 then
+			if upPressed then
+				-- self._selectedGroupEntryIndex.Value = #groupEntries
+			else
+				self._selectedGroupEntryIndex.Value += 1
+			end
+			return
+		end
+
+		currentGroup = groupEntries[selectedGroup]
+		if not currentGroup then
+			return
+		end
+
+		currentGroupEntries = #currentGroup:GetEntries() - 1
+	else
+		local customResultType = self._currentCustomResults.Value
+		local customEntries
+
+		if customResultType == "Color" then
+			customEntries = self._colorEntries
+		elseif customResultType == "Font" then
+			customEntries = self._fontEntries
+		elseif customResultType == "FontStyle" then
+			customEntries = self._fontStyleEntries
+		end
+
+		if not customEntries or #customEntries == 0 then
+			return
+		end
+
+		currentGroupEntries = #customEntries - 1
+	end
+
+	if upPressed then
+		if not customResultsEnabled then
+			if selectedEntry - 1 >= 0 and not currentGroup:IsCollapsed() then
+				self._selectedEntryIndex.Value -= 1
+			elseif selectedEntry == 0 then
+				if selectedGroup - 1 <= 0 then
+					-- self._selectedGroupEntryIndex.Value = #groupEntries
+					return
+				else
+					self._selectedGroupEntryIndex.Value -= 1
+				end
+
+				local newGroup = groupEntries[self._selectedGroupEntryIndex.Value]
+				if newGroup:IsCollapsed() then
+					self._selectedEntryIndex.Value = 0
+				else
+					self._selectedEntryIndex.Value = #newGroup:GetEntries() - 1
+				end
+			end
+		else
+			if selectedEntry - 1 >= 0 then
+				self._selectedEntryIndex.Value -= 1
+			end
+		end
+	else
+		if not customResultsEnabled then
+			if selectedEntry + 1 <= currentGroupEntries and not currentGroup:IsCollapsed() then
+				self._selectedEntryIndex.Value += 1
+			elseif ((selectedEntry + 1 > currentGroupEntries) or currentGroup:IsCollapsed()) and selectedGroup + 1 <= #groupEntries then
+				self._selectedEntryIndex.Value = 0
+				self._selectedGroupEntryIndex.Value += 1
+			end
+		else
+			if selectedEntry + 1 <= currentGroupEntries then
+				self._selectedEntryIndex.Value += 1
+			end
+		end
+	end
 end
 
 function CommandPalette:_setupSearch()
@@ -442,20 +622,33 @@ function CommandPalette:_setupSearch()
 		CurrentGroup = self._selectedGroupEntryIndex:Observe();
 		CustomResultType = self._currentCustomResults:Observe();
 		CustomResultsEnabled = self._customResultsEnabled:Observe();
+		SearchCount = self._searchEntries:ObserveCount();
 		SearchQuery = self._searchQuery:Observe();
-	}):Subscribe(function(data)
-		if data.SearchQuery ~= "" then
-			self._selectedEntry.Value = self._searchEntries:GetList()[data.CurrentEntry]
-		else
+	}):Pipe({
+		Rx.switchMap(function(data)
+			if data.SearchQuery ~= "" then
+				if data.SearchCount == 0 then
+					return Rx.of(nil)
+				end
+
+				local index = math.clamp(data.CurrentEntry, 1, data.SearchCount)
+
+				return self._searchEntries:ObserveAtIndex(index)
+			end
+
 			local currentEntries
 
 			if not data.CustomResultsEnabled then
 				if data.CurrentGroup == 0 then
-					return
+					return Rx.EMPTY
 				end
 
 				local groupEntries = self._entries:GetList()
 				local currentGroup = groupEntries[data.CurrentGroup]
+
+				if not currentGroup then
+					return Rx.EMPTY
+				end
 
 				currentEntries = currentGroup:GetEntries()
 			else
@@ -469,15 +662,17 @@ function CommandPalette:_setupSearch()
 			end
 
 			if not currentEntries then
-				return
+				return Rx.EMPTY
 			end
 
 			if data.CurrentEntry == 0 then
-				self._selectedEntry.Value = currentEntries[1]
-			else
-				self._selectedEntry.Value = currentEntries[data.CurrentEntry + 1]
+				return Rx.of(currentEntries[1])
 			end
-		end
+
+			return Rx.of(currentEntries[data.CurrentEntry + 1])
+		end);
+	}):Subscribe(function(entry)
+		self._selectedEntry.Value = entry
 	end))
 
 	self._maid:GiveTask(self._selectedEntry:Observe():Subscribe(function(entry)
@@ -512,6 +707,10 @@ function CommandPalette:_setupColorResults()
 
 	self._maid:GiveTask(colorPickerPane.TabReturned:Connect(function()
 		self:CaptureFocus()
+	end))
+
+	self._maid:GiveTask(self._dockTarget:Observe():Subscribe(function(dockTarget)
+		colorPickerPane:SetPluginGui(dockTarget)
 	end))
 
 	self._maid:GiveTask(self._currentCustomResults:ObserveBrio():Subscribe(function(customResultsBrio)
@@ -830,9 +1029,41 @@ function CommandPalette:CaptureFocus()
 		return
 	end
 
+	self._focusAttempt += 1
+
+	local attempt = self._focusAttempt
+
 	task.defer(function()
-		RunService.RenderStepped:Wait()
-		self._input:CaptureFocus()
+		local deadline = os.clock() + FOCUS_TIMEOUT
+
+		while true do
+			RunService.RenderStepped:Wait()
+
+			if attempt ~= self._focusAttempt or not self._input then
+				return
+			end
+
+			if not self:IsVisible() then
+				return
+			end
+
+			if self._input:IsFocused() then
+				return
+			end
+
+			local focusedTextBox = UserInputService:GetFocusedTextBox()
+			if focusedTextBox and focusedTextBox ~= self._input then
+				return
+			end
+
+			if self._input.Visible then
+				self._input:CaptureFocus()
+			end
+
+			if os.clock() >= deadline then
+				return
+			end
+		end
 	end)
 end
 
@@ -950,19 +1181,68 @@ function CommandPalette:Render(props)
 	local secondaryPercentHighlighted = Blend.AccelTween(self._secondaryModel:ObservePercentHighlightedTarget(), 400)
 	local secondaryPercentPressed = Blend.Spring(self._secondaryModel:ObservePercentPressedTarget(), 40, 0.8)
 
+	local isDocked = Blend.Computed(self._dockTarget, function(dockTarget)
+		return dockTarget ~= nil
+	end)
+
+	local defaultParent = (props and props.Parent) or false
+
 	return Blend.New "Frame" {
 		Name = "CommandPalette";
 		AnchorPoint = Vector2.new(0.5, 0.5);
-		BackgroundTransparency = 1;
+		BackgroundColor3 = Color3.fromRGB(30, 30, 30);
 		Position = UDim2.fromScale(0.5, 0.5);
-		Size = UDim2.fromScale(0.4, 0.75);
+
+		Parent = Blend.Computed(self._dockTarget, defaultParent, function(dockTarget, parent)
+			return dockTarget or parent or nil
+		end);
+
+		Size = Blend.Computed(isDocked, function(docked)
+			return docked and UDim2.fromScale(1, 1) or UDim2.fromScale(0.4, 0.75)
+		end);
+
+		BackgroundTransparency = Blend.Computed(isDocked, transparency, function(docked, percent)
+			return docked and percent or 1
+		end);
 
 		[Blend.OnChange "AbsoluteSize"] = function(windowSize)
 			windowHeight.Value = math.round(windowSize.Y) - 90
 		end;
 
+		Active = Blend.Computed(isDocked, self:ObserveVisible(), function(docked, isVisible)
+			return docked or isVisible
+		end);
+
+		[Blend.OnEvent "InputBegan"] = function(input)
+			self:_handleCatcherInputBegan(input)
+		end;
+
+		[Blend.OnEvent "InputEnded"] = function(input)
+			self:_handleCatcherInputEnded(input)
+		end;
+
 		Blend.New "UISizeConstraint" {
-			MinSize = Vector2.new(650, 0);
+			MinSize = Blend.Computed(isDocked, function(docked)
+				return docked and Vector2.zero or Vector2.new(650, 0)
+			end);
+		};
+
+		Blend.New "Frame" {
+			Name = "keyCatcher";
+			Active = true;
+			BackgroundTransparency = 1;
+			Selectable = false;
+			Size = UDim2.fromScale(1, 1);
+			Visible = isDocked;
+			ZIndex = -100;
+
+			[Blend.OnEvent "InputBegan"] = function(input)
+				self:_handleCatcherInputBegan(input)
+			end;
+
+			[Blend.OnEvent "InputEnded"] = function(input)
+				self:_handleCatcherInputEnded(input)
+			end;
 		};
 
 		Blend.New "Frame" {
@@ -1002,6 +1282,10 @@ function CommandPalette:Render(props)
 				SliceCenter = Rect.new(Vector2.new(100, 100), Vector2.new(100, 100));
 				SliceScale = 0.4;
 				ZIndex = -10;
+
+				Visible = Blend.Computed(isDocked, function(docked)
+					return not docked
+				end);
 
 				ImageTransparency = Blend.Computed(transparency, function(percent)
 					return 0.9 + (percent * 0.1)
@@ -1127,6 +1411,7 @@ function CommandPalette:Render(props)
 						Blend.New "TextBox" {
 							Name = "input";
 							BackgroundTransparency = 1;
+							ClearTextOnFocus = false;
 							FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 							LayoutOrder = 2;
 							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
@@ -1148,6 +1433,16 @@ function CommandPalette:Render(props)
 							end;
 
 							[Blend.OnChange "Text"] = function(text)
+								if string.find(text, "\t", 1, true) then
+									self._input.Text = (string.gsub(text, "\t", ""))
+
+									if self:_shouldHandleKey(Enum.KeyCode.Tab) then
+										self:_handleTab()
+									end
+
+									return
+								end
+
 								local strippedText = string.gsub(text, "[\r\n]", "")
 
 								if strippedText ~= text then
@@ -1196,27 +1491,35 @@ function CommandPalette:Render(props)
 								self._inputFocused.Value = true
 							end;
 
-							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+							[Blend.OnEvent "FocusLost"] = function(enterPressed, inputObject)
 								local selectedEntry = self._selectedEntry.Value
 								local refocusInput = false
-								local escapePressed, shiftPressed, tabPressed
 
 								-- Hold shift to trigger without closing the palette
-								for _, inputObject in UserInputService:GetKeysPressed() do
-									if inputObject.KeyCode == Enum.KeyCode.LeftShift then
-										shiftPressed = true
-									elseif inputObject.KeyCode == Enum.KeyCode.Escape then
-										escapePressed = true
-									elseif inputObject.KeyCode == Enum.KeyCode.Tab then
-										tabPressed = true
-									end
-								end
+								local shiftPressed = self:_isKeyDown(Enum.KeyCode.LeftShift)
+									or self:_isKeyDown(Enum.KeyCode.RightShift)
 
-								if tabPressed then
+								local keyCode = inputObject and inputObject.KeyCode
+								local escapePressed = keyCode == Enum.KeyCode.Escape
+									or (keyCode == nil and not enterPressed and self:_isKeyDown(Enum.KeyCode.Escape))
+								local tabPressed = keyCode == Enum.KeyCode.Tab
+									or (keyCode == nil and not enterPressed and self:_isKeyDown(Enum.KeyCode.Tab))
+
+								if tabPressed and not escapePressed then
+									self._inputFocused.Value = false
 									return
 								end
 
-								if shiftPressed and not escapePressed then
+								if escapePressed then
+									if shiftPressed then
+										self._inputFocused.Value = false
+										return
+									end
+
+									if self:_shouldHandleKey(Enum.KeyCode.Escape) then
+										self:_handleEscape(false)
+									end
+								elseif shiftPressed then
 									refocusInput = true
 								end
 
@@ -1340,11 +1643,9 @@ function CommandPalette:Render(props)
 						end);
 
 						Size = Blend.Computed(self._inputFocused, self._customResultsEnabled, function(isFocused, customResults)
-							if isFocused then
-								return UDim2.new(1, -70, 1, 0)
-							else
-								return UDim2.new(1, -35, 1, 0)
-							end
+							local leftInset = (isFocused or customResults) and 35 or 0
+
+							return UDim2.new(1, -(leftInset + 35), 1, 0)
 						end);
 
 						Visible = Blend.Computed(self:ObserveVisible(), self._inputFocused, function(isVisible, isFocused)
