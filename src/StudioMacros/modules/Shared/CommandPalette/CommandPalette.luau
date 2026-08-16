@@ -17,6 +17,7 @@ local FontEntry = require("FontEntry")
 local FontStyleEntry = require("FontStyleEntry")
 local Fzy = require("Fzy")
 local LipsumUtils = require("LipsumUtils")
+local NumberPreviewPane = require("NumberPreviewPane")
 local ObservableList = require("ObservableList")
 local ObservableSortedList = require("ObservableSortedList")
 local Rx = require("Rx")
@@ -27,6 +28,8 @@ local Signal = require("Signal")
 local SpringObject = require("SpringObject")
 local StepUtils = require("StepUtils")
 local ValueObject = require("ValueObject")
+local evaluateNumberInput = require("evaluateNumberInput")
+local formatNumber = require("formatNumber")
 
 local FZY_CONFIG = Fzy.createConfig()
 local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -89,6 +92,7 @@ function CommandPalette.new()
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())
 	self.CustomResultsReset = self._maid:Add(Signal.new())
+	self.NumberInput = self._maid:Add(ValueObject.new(nil))
 	self.TargetProperty = self._maid:Add(ValueObject.new(nil))
 	self.TargetSelection = self._maid:Add(ValueObject.new(nil))
 
@@ -370,6 +374,15 @@ function CommandPalette:SetCustomResults(customResults: string, useWidget: boole
 				end
 			end
 		end
+	elseif customResults == "Number" then
+		if not self._numberPreview then
+			self:_setupNumberResults()
+		end
+
+		local config = self.NumberInput.Value
+
+		self._actionText.Value = config and config.Prompt or "type a number..."
+		self._numberPreview:SetCaption(config and config.Caption or "")
 	end
 
 	task.defer(function()
@@ -725,6 +738,57 @@ function CommandPalette:_setupSearch()
 		entry:SetIsSelected(true)
 		self._previousEntry = entry
 	end))
+end
+
+--[=[
+	Evaluates the current query against the active number input config, using
+	the first selected instance for whatever variables the config exposes.
+
+	@return number?
+]=]
+function CommandPalette:EvaluateNumberInput(text: string): number?
+	local config = self.NumberInput.Value
+	if not config then
+		return nil
+	end
+
+	local selection = self.TargetSelection.Value
+
+	return evaluateNumberInput(config, text, selection and selection[1])
+end
+
+function CommandPalette:_setupNumberResults()
+	if self._numberPreview then
+		return
+	end
+
+	local numberPreview = self._maid:Add(NumberPreviewPane.new())
+	self._numberPreview = numberPreview
+
+	if self._bodyFrame then
+		numberPreview:SetTargetParent(self._bodyFrame)
+	end
+
+	self._maid:GiveTask(Blend.Computed(self._searchQuery, self.NumberInput, self.TargetSelection, function(query, _config, _selection)
+		if query == "" then
+			return { IsEmpty = true; IsValid = true; Preview = "" }
+		end
+
+		local value = self:EvaluateNumberInput(query)
+		if not value then
+			return { IsEmpty = false; IsValid = false; Preview = "" }
+		end
+
+		return { IsEmpty = false; IsValid = true; Preview = formatNumber(value) }
+	end):Subscribe(function(state)
+		numberPreview:SetPreview(state.Preview, state.IsValid, state.IsEmpty)
+	end))
+
+	self._maid:GiveTask(self._entries:Add(numberPreview))
+
+	self._maid:GiveTask(Blend.Computed(self._customResultsEnabled, self._currentCustomResults, function(isEnabled, resultsType)
+		numberPreview:SetVisible(isEnabled and resultsType == "Number")
+	end):Subscribe())
 end
 
 function CommandPalette:_setupColorResults()
@@ -1601,6 +1665,13 @@ function CommandPalette:Render(props)
 													self._colorPicker:SetColor(newColor)
 												end
 												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
+											end
+										elseif customResultsType == "Number" then
+											local value = self:EvaluateNumberInput(self._input.Text)
+											if value then
+												self.CustomResultActivated:Fire("Number", shiftPressed, value)
+											else
+												refocusInput = true
 											end
 										end
 									end

@@ -74,8 +74,30 @@ return {
 	-- optional values, when provided the macro will use the custom results to
 	-- select arguments which will be passed to the macro. see:
 	-- ChangeBackgroundColor.luau or ChangeFont.luau for an example
-	CustomResults = "Color" | "Font" | "FontStyle",
+	CustomResults = "Color" | "Font" | "FontStyle" | "Number",
 	TargetProperty = "BackgroundColor3",
+
+	-- required by CustomResults = "Number". you type the value into the
+	-- palette's own input and the evaluated result is previewed above the
+	-- results. see: ChangeAspectRatio.luau for an example
+	NumberInput = {
+		Caption = "ratio",
+		Prompt = "type an aspect ratio (16:9, 1.5, x/y)...",
+
+		-- optional names usable inside the typed expression
+		GetVariables = function(instance) end,
+		-- optional rewrite applied before the expression is parsed
+		Sanitize = function(text) end,
+		-- optional, reject otherwise-valid numbers
+		Validate = function(value) end,
+	},
+
+	-- optional, called instead of opening the palette when a CustomResults
+	-- macro is triggered from outside of it (a keybind, say). use it to open
+	-- your own window; without it the palette opens docked in a widget
+	OpenWindow = function(plugin)
+		NumberInputWidget.get(plugin, config):Open()
+	end;
 
 	-- optional predicate function that should return true if the macro should
 	-- work + be available for the given instance

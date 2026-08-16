@@ -284,6 +284,15 @@ local function initialize(plugin)
 					local arguments = {...}
 					if customResults and #arguments == 0 then
 						local isNewlyOpened = not pane:IsVisible()
+
+						-- Macros with their own window use it when they're
+						-- triggered from outside the palette; reaching them
+						-- through the palette keeps the input inline instead.
+						if isNewlyOpened and macroData.OpenWindow then
+							macroData.OpenWindow(plugin)
+							return
+						end
+
 						local useWidget = isNewlyOpened or pane:IsDocked()
 
 						if isNewlyOpened then
@@ -291,6 +300,7 @@ local function initialize(plugin)
 							pane:Show(true)
 						end
 
+						pane.NumberInput.Value = macroData.NumberInput
 						pane.TargetProperty.Value = macroData.TargetProperty
 						pane:SetCustomResults(customResults, useWidget)
 						activeMacro = macroData
