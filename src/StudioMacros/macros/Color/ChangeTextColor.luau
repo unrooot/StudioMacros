@@ -10,13 +10,13 @@ return {
 			or gui:IsA("TextBox")
 	end;
 
-	Macro = function(gui, _, color)
-		if not color then
-			return
-		end
-
+	Macro = function(gui, _, color, alpha)
 		if typeof(color) == "Color3" then
 			gui.TextColor3 = color
+		end
+
+		if type(alpha) == "number" then
+			gui.TextTransparency = 1 - alpha
 		end
 	end;
 }

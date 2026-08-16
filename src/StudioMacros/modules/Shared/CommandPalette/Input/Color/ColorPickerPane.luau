@@ -15,7 +15,7 @@ local ValueObject = require("ValueObject")
 
 local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
-local SLIDER_COUNT = 3
+local SLIDER_COUNT = 4
 local SLIDER_PADDING = 10
 local SLIDER_WIDTH = 16
 
@@ -31,14 +31,15 @@ function ColorPickerPane.new()
 
 	self._tabInputMap = {}
 
-	self._currentBrightness = self._maid:Add(ValueObject.new(nil))
-	self._currentHue = self._maid:Add(ValueObject.new(nil))
-	self._currentSaturation = self._maid:Add(ValueObject.new(nil))
+	self._currentBrightness = self._maid:Add(ValueObject.new(1))
+	self._currentHue = self._maid:Add(ValueObject.new(0))
+	self._currentSaturation = self._maid:Add(ValueObject.new(0))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._tabInputIndex = self._maid:Add(ValueObject.new(nil))
 	self._targetParent = self._maid:Add(ValueObject.new(nil))
 
 	self.ColorUpdated = self._maid:Add(Signal.new())
+	self.CurrentAlpha = self._maid:Add(ValueObject.new(1))
 	self.CurrentColor = self._maid:Add(ValueObject.new(Color3.new(1, 1, 1)))
 	self.TabReturned = self._maid:Add(Signal.new())
 
@@ -102,7 +103,37 @@ function ColorPickerPane:ObserveColor()
 	return self.CurrentColor:Observe()
 end
 
-function ColorPickerPane:SetColor(color)
+function ColorPickerPane:ObserveAlpha()
+	return self.CurrentAlpha:Observe()
+end
+
+function ColorPickerPane:SetAlpha(alpha: number)
+	self.CurrentAlpha.Value = math.clamp(alpha, 0, 1)
+end
+
+--[[
+	Sets the color and realigns the sliders to match it. Hue is left where the
+	user put it when the incoming color is grayscale, and saturation when it's
+	black, because ToHSV can't recover either from those and would otherwise
+	snap both sliders back to red.
+]]
+function ColorPickerPane:SetColor(color: Color3)
+	local hue, saturation, brightness = color:ToHSV()
+
+	self._settingColor = true
+
+	if saturation > 0 then
+		self._currentHue.Value = hue
+	end
+
+	if brightness > 0 then
+		self._currentSaturation.Value = saturation
+	end
+
+	self._currentBrightness.Value = brightness
+
+	self._settingColor = false
+
 	self.CurrentColor.Value = color
 end
 
@@ -159,7 +190,7 @@ function ColorPickerPane:_endDrag()
 	end
 
 	self._dragging = nil
-	self.ColorUpdated:Fire(self.CurrentColor.Value)
+	self.ColorUpdated:Fire(self.CurrentColor.Value, self.CurrentAlpha.Value)
 end
 
 function ColorPickerPane:_updateDragPosition(position: Vector2)
@@ -169,6 +200,8 @@ function ColorPickerPane:_updateDragPosition(position: Vector2)
 		self:_updateSaturationPosition(position)
 	elseif self._dragging == "Brightness" then
 		self:_updateBrightnessPosition(position)
+	elseif self._dragging == "Alpha" then
+		self:_updateAlphaPosition(position)
 	elseif self._dragging == "Cursor" then
 		self:_updateCursorPosition(position)
 	end
@@ -222,6 +255,17 @@ function ColorPickerPane:_updateBrightnessPosition(position: Vector2)
 	self._currentBrightness.Value = math.abs(1 - value)
 end
 
+function ColorPickerPane:_updateAlphaPosition(position: Vector2)
+	if not self._alpha then
+		return
+	end
+
+	local relativeY = position.Y - self._alpha.AbsolutePosition.Y
+	local alpha = math.clamp(relativeY / self._alpha.AbsoluteSize.Y, 0, 1)
+
+	self.CurrentAlpha.Value = math.abs(1 - alpha)
+end
+
 function ColorPickerPane:SetTargetParent(targetParent)
 	self._targetParent.Value = targetParent
 end
@@ -238,13 +282,8 @@ function ColorPickerPane:Render(props)
 	local targetColor = self._maid:Add(Instance.new("Color3Value"))
 
 	self._maid:GiveTask(Blend.Computed(self._currentHue, self._currentSaturation, self._currentBrightness, function(hue, saturation, brightness)
-		if not hue or not saturation or not brightness then
-			local currentColor = self.CurrentColor.Value
-			if not currentColor then
-				return
-			end
-
-			hue, saturation, brightness = currentColor:ToHSV()
+		if self._settingColor then
+			return
 		end
 
 		self.CurrentColor.Value = Color3.fromHSV(hue, saturation, brightness)
@@ -253,21 +292,6 @@ function ColorPickerPane:Render(props)
 	self._maid:GiveTask(self.CurrentColor:Observe():Subscribe(function(newColor)
 		if not newColor then
 			return
-		end
-
-		local h, s, v = newColor:ToHSV()
-		-- Fill default hsv values
-		local currentHue = self._currentHue.Value
-		if not currentHue or h ~= self._currentHue.Value then
-			self._currentHue.Value = h
-		end
-		local currentSaturation = self._currentSaturation.Value
-		if not currentSaturation or s ~= self._currentSaturation.Value then
-			self._currentSaturation.Value = s
-		end
-		local currentBrightness = self._currentBrightness.Value
-		if not currentBrightness or v ~= self._currentBrightness.Value then
-			self._currentBrightness.Value = v
 		end
 
 		TweenService:Create(targetColor, TWEEN_INFO, {
@@ -280,6 +304,7 @@ function ColorPickerPane:Render(props)
 	local percentHue = Blend.Spring(self._currentHue, 35, 0.9)
 	local percentSaturation = Blend.Spring(self._currentSaturation, 35, 0.9)
 	local percentBrightness = Blend.Spring(self._currentBrightness, 35, 0.9)
+	local percentAlpha = Blend.Spring(self.CurrentAlpha, 35, 0.9)
 
 	local pickerCursorX = Blend.Spring(percentSaturation:Pipe({
 		Rx.map(function(percent)
@@ -791,6 +816,85 @@ function ColorPickerPane:Render(props)
 						[Blend.OnEvent "InputBegan"] = function(input)
 							if self:_isValidInput(input) then
 								self:_beginDrag("Brightness", input)
+							end
+						end;
+
+						[Blend.OnEvent "InputEnded"] = function(input)
+							if self:_isValidInput(input) then
+								self:_endDrag()
+							end
+						end;
+					};
+				};
+
+				Blend.New "Frame" {
+					Name = "alpha";
+					BackgroundTransparency = 1;
+					LayoutOrder = 4;
+					Size = UDim2.new(0, SLIDER_WIDTH, 1, 0);
+
+					Blend.New "Frame" {
+						Name = "container";
+						BackgroundColor3 = targetColor;
+						BackgroundTransparency = transparency;
+						Size = UDim2.fromScale(1, 1);
+						ZIndex = 2;
+
+						Blend.New "UIStroke" {
+							Color = Color3.fromRGB(40, 40, 40);
+							Transparency = transparency;
+						};
+
+						Blend.New "UICorner" {
+							CornerRadius = UDim.new(0, 3);
+						};
+
+						Blend.New "UIGradient" {
+							Rotation = 90;
+							Transparency = NumberSequence.new(0, 1);
+						};
+
+						Blend.New "Frame" {
+							Name = "cursor";
+							AnchorPoint = Vector2.new(0.5, 0.5);
+							BackgroundTransparency = transparency;
+							Size = UDim2.fromScale(1.2, 1);
+
+							Position = Blend.Computed(percentAlpha, function(percent)
+								return UDim2.fromScale(0.5, 1 - percent)
+							end);
+
+							Blend.New "UIAspectRatioConstraint" {
+								AspectRatio = 2.5;
+							};
+
+							Blend.New "UICorner" {
+								CornerRadius = UDim.new(0, 2);
+							};
+
+							Blend.New "UIStroke" {
+								Color = Color3.fromRGB(230, 230, 230);
+								Transparency = transparency;
+							};
+						};
+					};
+
+					Blend.New "TextButton" {
+						Name = "button";
+						Size = UDim2.fromScale(1, 1);
+						BackgroundColor3 = Color3.fromRGB(163, 162, 165);
+						BackgroundTransparency = 1;
+						TextColor3 = Color3.fromRGB(27, 42, 53);
+						TextSize = 8;
+						ZIndex = 5;
+
+						[Blend.Instance] = function(instance)
+							self._alpha = instance
+						end;
+
+						[Blend.OnEvent "InputBegan"] = function(input)
+							if self:_isValidInput(input) then
+								self:_beginDrag("Alpha", input)
 							end
 						end;
 
