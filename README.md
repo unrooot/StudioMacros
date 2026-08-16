@@ -83,6 +83,11 @@ return {
 		return instance:IsA("BasePart")
 	end;
 
+	-- optional, when true the macro runs once and receives a table of every
+	-- selected instance that passed the predicate instead of running once per
+	-- instance. see: WrapIntoContainer.luau for an example
+	RunOnSelection = true,
+
 	Macro = function(instance)
 		instance.Position = Vector3.zero
 		instance.Size = Vector3.one

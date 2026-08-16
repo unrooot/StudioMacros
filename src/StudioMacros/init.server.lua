@@ -335,8 +335,40 @@ local function initialize(plugin)
 						end
 					end
 
+					local function closePane()
+						if leavePaneOpen then
+							return
+						end
+
+						if leaveActiveMacroOpen then
+							pane:SetCustomResults(nil)
+						else
+							pane:Hide()
+						end
+					end
+
 					local success, macroError = xpcall(function()
-						if #selectedInstances > 0 then
+						if #selectedInstances > 0 and macroData.RunOnSelection then
+							local validInstances = {}
+							for _, selectedInstance in selectedInstances do
+								if macroData.Predicate and not macroData.Predicate(selectedInstance) then
+									print(macroData.Name, "failed predicate", selectedInstance)
+									continue
+								end
+
+								table.insert(validInstances, selectedInstance)
+							end
+
+							if #validInstances > 0 then
+								startRecording()
+
+								local newInstance = macroData.Macro(validInstances, plugin, table.unpack(packedArguments, 1, packedArguments.n))
+								toggledInstance = validInstances[1]
+
+								closePane()
+								appendSelection(newSelection, newInstance)
+							end
+						elseif #selectedInstances > 0 then
 							startRecording()
 							for _, selectedInstance in selectedInstances do
 								if macroData.Predicate then
@@ -350,14 +382,7 @@ local function initialize(plugin)
 								local newInstance = macroData.Macro(selectedInstance, plugin, table.unpack(packedArguments, 1, packedArguments.n))
 								toggledInstance = selectedInstance
 
-								if not leavePaneOpen then
-									if leaveActiveMacroOpen then
-										pane:SetCustomResults(nil)
-									else
-										pane:Hide()
-									end
-								end
-
+								closePane()
 								appendSelection(newSelection, newInstance)
 							end
 						else
@@ -365,14 +390,7 @@ local function initialize(plugin)
 								startRecording()
 								local newInstance = macroData.Macro(nil, plugin, table.unpack(packedArguments, 1, packedArguments.n))
 
-								if not leavePaneOpen then
-									if leaveActiveMacroOpen then
-										pane:SetCustomResults(nil)
-									else
-										pane:Hide()
-									end
-								end
-
+								closePane()
 								appendSelection(newSelection, newInstance)
 							end
 						end
