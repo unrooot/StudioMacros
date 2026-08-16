@@ -3,7 +3,6 @@ local require = require(script.Parent.loader).load(script)
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
-local Fzy = require("Fzy")
 local Rx = require("Rx")
 local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
@@ -99,7 +98,7 @@ function CommandEntry:Render(props)
 			return
 		end
 
-		self.SearchScore.Value = Fzy.score(fzyConfig, searchQuery, string.lower(`{name} {description}`))
+		self.SearchScore.Value = SearchUtils.getSearchScore(fzyConfig, searchQuery, name, description)
 	end):Subscribe())
 
 	self._maid:GiveTask(self._model:ObserveIsMouseOrTouchOver():Subscribe(function(isHovered)

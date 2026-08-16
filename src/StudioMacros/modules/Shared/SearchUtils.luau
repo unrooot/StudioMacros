@@ -4,6 +4,41 @@ local Fzy = require("Fzy")
 
 local SearchUtils = {}
 
+local function scoreString(fzyConfig, searchQuery, targetString)
+	local score = Fzy.score(fzyConfig, searchQuery, string.lower(targetString))
+
+	if score == Fzy.getMaxScore() then
+		return Fzy.getScoreCeiling(fzyConfig)
+	elseif score == Fzy.getMinScore() then
+		return Fzy.getScoreFloor(fzyConfig)
+	end
+
+	return score
+end
+
+--[[
+	Scores a query against a name and (optionally) a description, weighing the
+	description lower. Scoring `"{name} {description}"` as one string instead
+	lets a long description drag a name match below entries that only mention
+	the query in passing.
+]]
+function SearchUtils.getSearchScore(fzyConfig, searchQuery, name, description)
+	if not fzyConfig or not searchQuery or not name then
+		return
+	end
+
+	searchQuery = string.lower(searchQuery)
+
+	local score = scoreString(fzyConfig, searchQuery, name)
+
+	if description and description ~= "" then
+		local descriptionScore = scoreString(fzyConfig, searchQuery, description) * 0.7
+		score = math.max(score, descriptionScore)
+	end
+
+	return score
+end
+
 function SearchUtils.getMatchedString(fzyConfig, targetString, searchQuery)
 	if not fzyConfig or not targetString or not searchQuery then
 		return
