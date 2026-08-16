@@ -59,7 +59,7 @@ return function(require)
 		end;
 
 		Validate = function(value)
-			return value > 0
+			return value > 0, "ratio must be positive"
 		end;
 
 		Apply = function(target, value)

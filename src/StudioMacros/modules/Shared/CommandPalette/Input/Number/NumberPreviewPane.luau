@@ -44,7 +44,7 @@ function NumberPreviewPane:SetCaption(caption: string)
 end
 
 --[=[
-	@param preview string -- the formatted result, or "" when there isn't one
+	@param preview string -- the formatted result, or why it couldn't be read
 	@param isValid boolean
 	@param isEmpty boolean -- nothing typed yet, so dim rather than flag it
 ]=]
@@ -125,7 +125,7 @@ function NumberPreviewPane:Render(props)
 				BackgroundTransparency = 1;
 				FontFace = Font.new("rbxasset://fonts/families/SourceSansPro.json");
 				Position = UDim2.fromScale(0, 0.5);
-				Size = UDim2.fromScale(0.5, 1);
+				Size = UDim2.fromScale(0.3, 1);
 				Text = self._caption;
 				TextColor3 = emphasisColor;
 				TextSize = 14;
@@ -142,11 +142,18 @@ function NumberPreviewPane:Render(props)
 				BackgroundTransparency = 1;
 				FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
 				Position = UDim2.fromScale(1, 0.5);
-				Size = UDim2.fromScale(0.5, 1);
+				Size = UDim2.fromScale(0.7, 1);
 				Text = self._preview;
-				TextColor3 = Color3.fromRGB(255, 255, 255);
-				TextSize = 18;
+				TextTruncate = Enum.TextTruncate.AtEnd;
 				TextXAlignment = Enum.TextXAlignment.Right;
+
+				TextColor3 = Blend.Computed(percentInvalid, function(invalid)
+					return Color3.fromRGB(255, 255, 255):Lerp(ERROR_COLOR, invalid)
+				end);
+
+				TextSize = Blend.Computed(self._isValid, function(isValid)
+					return isValid and 18 or 13
+				end);
 
 				TextTransparency = Blend.Computed(props.Transparency, percentVisible, self._preview, function(parentTransparency, percent, preview)
 					if preview == "" then

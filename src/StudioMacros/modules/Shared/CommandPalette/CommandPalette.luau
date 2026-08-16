@@ -2,6 +2,7 @@ local require = require(script.Parent.loader).load(script)
 
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local RunService = game:GetService("RunService")
+local Selection = game:GetService("Selection")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -741,20 +742,43 @@ function CommandPalette:_setupSearch()
 end
 
 --[=[
-	Evaluates the current query against the active number input config, using
-	the first selected instance for whatever variables the config exposes.
+	Picks the instance whose variables the typed expression is evaluated
+	against. The palette's own selection comes first, since clicking an entry
+	can clear Studio's, and both are filtered by the macro's predicate so a
+	stray non-matching instance can't strand the variables.
 
-	@return number?
+	@return Instance?
 ]=]
-function CommandPalette:EvaluateNumberInput(text: string): number?
-	local config = self.NumberInput.Value
-	if not config then
+function CommandPalette:_getNumberInputTarget(config): Instance?
+	local function firstMatch(selection)
+		if not selection then
+			return nil
+		end
+
+		for _, selectedInstance in selection do
+			if not config.Predicate or config.Predicate(selectedInstance) then
+				return selectedInstance
+			end
+		end
+
 		return nil
 	end
 
-	local selection = self.TargetSelection.Value
+	return firstMatch(self.TargetSelection.Value) or firstMatch(Selection:Get())
+end
 
-	return evaluateNumberInput(config, text, selection and selection[1])
+--[=[
+	Evaluates the current query against the active number input config.
+
+	@return number?, string? -- the reason it failed, for previewing
+]=]
+function CommandPalette:EvaluateNumberInput(text: string): (number?, string?)
+	local config = self.NumberInput.Value
+	if not config then
+		return nil, "no input configured"
+	end
+
+	return evaluateNumberInput(config, text, self:_getNumberInputTarget(config))
 end
 
 function CommandPalette:_setupNumberResults()
@@ -774,9 +798,9 @@ function CommandPalette:_setupNumberResults()
 			return { IsEmpty = true; IsValid = true; Preview = "" }
 		end
 
-		local value = self:EvaluateNumberInput(query)
+		local value, evaluateError = self:EvaluateNumberInput(query)
 		if not value then
-			return { IsEmpty = false; IsValid = false; Preview = "" }
+			return { IsEmpty = false; IsValid = false; Preview = evaluateError or "invalid" }
 		end
 
 		return { IsEmpty = false; IsValid = true; Preview = formatNumber(value) }

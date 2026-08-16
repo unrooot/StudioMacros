@@ -10,9 +10,9 @@ local ExpressionUtils = require("ExpressionUtils")
 	@param config table
 	@param text string
 	@param target Instance?
-	@return number?
+	@return number?, string? -- the reason it failed, for previewing
 ]=]
-return function(config, text: string, target: Instance?): number?
+return function(config, text: string, target: Instance?): (number?, string?)
 	if config.Sanitize then
 		text = config.Sanitize(text)
 	end
@@ -22,13 +22,16 @@ return function(config, text: string, target: Instance?): number?
 		variables = config.GetVariables(target)
 	end
 
-	local value = ExpressionUtils.evaluate(text, variables)
+	local value, evaluateError = ExpressionUtils.evaluate(text, variables)
 	if not value then
-		return nil
+		return nil, evaluateError
 	end
 
-	if config.Validate and not config.Validate(value) then
-		return nil
+	if config.Validate then
+		local isValid, validateError = config.Validate(value)
+		if not isValid then
+			return nil, validateError or "invalid value"
+		end
 	end
 
 	return value
