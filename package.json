@@ -8,6 +8,10 @@
     "Lua"
   ],
   "license": "UNLICENSED",
+  "scripts": {
+    "dev": "rojo build --plugin StudioMacros.rbxm --watch",
+    "build": "rojo build --plugin StudioMacros.rbxm"
+  },
   "dependencies": {
     "@quenty/basicpane": "^13.16.0",
     "@quenty/blend": "^12.17.0",
