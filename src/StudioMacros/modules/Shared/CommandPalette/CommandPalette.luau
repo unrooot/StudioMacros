@@ -79,8 +79,12 @@ function CommandPalette.new()
 
 	self._percentAlpha = AccelTween.new(2000)
 	self._startAlphaAnimation, self._maid._stopAlphaAnimation = StepUtils.bindToRenderStep(function()
-		self._percentAlphaValue.Value = self._percentAlpha.p
-		return self._percentAlpha.rtime > 0
+		-- rtime is read before the value is pushed, since pushing it can take
+		-- longer than the tween has left and would strand the alpha mid-fade
+		local animating = self._percentAlpha.rtime > 0
+		self._percentAlphaValue.Value = animating and self._percentAlpha.p or self._percentAlpha.t
+
+		return animating
 	end)
 
 	self.CustomResultActivated = self._maid:Add(Signal.new())

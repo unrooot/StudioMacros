@@ -27,8 +27,10 @@ function CommandGroup.new()
 
 	self._percentAlpha = AccelTween.new(1000)
 	self._startAlphaAnimation, self._maid._stopAlphaAnimation = StepUtils.bindToRenderStep(function()
-		self._percentAlphaValue.Value = self._percentAlpha.p
-		return self._percentAlpha.rtime > 0
+		local animating = self._percentAlpha.rtime > 0
+		self._percentAlphaValue.Value = animating and self._percentAlpha.p or self._percentAlpha.t
+
+		return animating
 	end)
 
 	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible, doNotAnimate)
