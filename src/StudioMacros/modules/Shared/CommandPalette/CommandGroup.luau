@@ -1,12 +1,13 @@
 local require = require(script.Parent.loader).load(script)
 
+local AccelTween = require("AccelTween")
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local CommandEntry = require("CommandEntry")
 local ObservableList = require("ObservableList")
-local Rx = require("Rx")
 local RxBrioUtils = require("RxBrioUtils")
 local Signal = require("Signal")
+local StepUtils = require("StepUtils")
 local ValueObject = require("ValueObject")
 
 local CommandGroup = setmetatable({}, BasicPane)
@@ -18,13 +19,29 @@ function CommandGroup.new()
 
 	self._entries = self._maid:Add(ObservableList.new())
 	self._groupCollapsed = self._maid:Add(ValueObject.new(false))
-	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._percentAlphaValue = self._maid:Add(ValueObject.new(0, "number"))
+	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0, "number"))
 
 	self.Activated = self._maid:Add(Signal.new())
 	self.LayoutOrder = self._maid:Add(ValueObject.new(0))
 
-	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
-		self._percentVisibleTarget.Value = isVisible and 1 or 0
+	self._percentAlpha = AccelTween.new(1000)
+	self._startAlphaAnimation, self._maid._stopAlphaAnimation = StepUtils.bindToRenderStep(function()
+		self._percentAlphaValue.Value = self._percentAlpha.p
+		return self._percentAlpha.rtime > 0
+	end)
+
+	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible, doNotAnimate)
+		local percentVisible = isVisible and 1 or 0
+
+		self._percentVisibleTarget.Value = percentVisible
+		self._percentAlpha:SetTarget(percentVisible, doNotAnimate)
+
+		if doNotAnimate then
+			self._percentAlphaValue.Value = percentVisible
+		end
+
+		self._startAlphaAnimation()
 	end))
 
 	return self
@@ -74,14 +91,7 @@ function CommandGroup:IsCollapsed()
 end
 
 function CommandGroup:Render(props)
-	local target = self._percentVisibleTarget:Observe()
-
-	local percentVisible = Blend.Spring(target, 30, 0.7)
-	local percentAlpha = Blend.AccelTween(target, target:Pipe({
-		Rx.map(function(value)
-			return value == 1 and 400 or 1000
-		end)
-	}))
+	local percentAlpha = self._percentAlphaValue:Observe()
 
 	local revealedCount = 0
 	local lastEntryCount = 0
@@ -118,8 +128,8 @@ function CommandGroup:Render(props)
 		revealedCount = target
 	end):Subscribe())
 
-	local transparency = Blend.Computed(percentAlpha, function(percent)
-		return 1 - percent
+	local transparency = Blend.Computed(percentAlpha, props.Transparency or 0, function(percent, paletteTransparency)
+		return math.max(1 - percent, paletteTransparency)
 	end)
 
 	local groupFrame = self._maid:Add(Blend.State(nil))

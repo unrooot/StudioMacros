@@ -121,7 +121,7 @@ local function initialize(plugin)
 			pane.TargetSelection.Value = selection
 		end
 
-		pane:Show()
+		pane:Show(true)
 	end))
 
 	local restoringSelection = false
@@ -288,7 +288,7 @@ local function initialize(plugin)
 
 						if isNewlyOpened then
 							pane.TargetSelection.Value = Selection:Get()
-							pane:Show()
+							pane:Show(true)
 						end
 
 						pane.TargetProperty.Value = macroData.TargetProperty

@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
+local AccelTween = require("AccelTween")
 local BasicPane = require("BasicPane")
 local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
@@ -23,6 +24,8 @@ local RxBrioUtils = require("RxBrioUtils")
 local RxInstanceUtils = require("RxInstanceUtils")
 local SearchUtils = require("SearchUtils")
 local Signal = require("Signal")
+local SpringObject = require("SpringObject")
+local StepUtils = require("StepUtils")
 local ValueObject = require("ValueObject")
 
 local FZY_CONFIG = Fzy.createConfig()
@@ -44,6 +47,8 @@ function CommandPalette.new()
 	self._staleKeys = {}
 	self._focusAttempt = 0
 	self._pluginActive = false
+	self._snapContainerHeight = false
+	self._snapVisibility = false
 
 	self._actionText = self._maid:Add(ValueObject.new("select a command..."))
 	self._currentCustomResults = self._maid:Add(ValueObject.new(nil))
@@ -54,7 +59,8 @@ function CommandPalette.new()
 	self._entryHeight = self._maid:Add(ValueObject.new(45))
 	self._fontPreviewText = self._maid:Add(ValueObject.new(""))
 	self._inputFocused = self._maid:Add(ValueObject.new(false))
-	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
+	self._percentAlphaValue = self._maid:Add(ValueObject.new(0, "number"))
+	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0, "number"))
 	self._primaryIcon = self._maid:Add(ValueObject.new("rbxassetid://6031154871"))
 	self._primaryModel = self._maid:Add(ButtonHighlightModel.new())
 	self._searchEntries = self._maid:Add(ObservableSortedList.new(true))
@@ -68,6 +74,15 @@ function CommandPalette.new()
 	self._targetFont = self._maid:Add(ValueObject.new(nil))
 	self._widgetRequested = self._maid:Add(ValueObject.new(false))
 
+	self._percentVisible = self._maid:Add(SpringObject.new(self._percentVisibleTarget, 50, 0.9))
+	self._percentVisible.Epsilon = 1e-3
+
+	self._percentAlpha = AccelTween.new(2000)
+	self._startAlphaAnimation, self._maid._stopAlphaAnimation = StepUtils.bindToRenderStep(function()
+		self._percentAlphaValue.Value = self._percentAlpha.p
+		return self._percentAlpha.rtime > 0
+	end)
+
 	self.CustomResultActivated = self._maid:Add(Signal.new())
 	self.CustomResultsReset = self._maid:Add(Signal.new())
 	self.TargetProperty = self._maid:Add(ValueObject.new(nil))
@@ -80,7 +95,7 @@ function CommandPalette.new()
 		self:_setPluginActive(false)
 	end)
 
-	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible)
+	self._maid:GiveTask(self.VisibleChanged:Connect(function(isVisible, doNotAnimate)
 		self:_updatePluginActivation()
 
 		table.clear(self._keysDown)
@@ -111,7 +126,25 @@ function CommandPalette.new()
 
 		self._primaryModel:SetInteractionEnabled(isVisible)
 		self._secondaryModel:SetInteractionEnabled(isVisible)
-		self._percentVisibleTarget.Value = isVisible and 1 or 0
+
+		local percentVisible = isVisible and 1 or 0
+
+		self._snapVisibility = doNotAnimate or false
+
+		if isVisible and self._snapVisibility then
+			self._snapContainerHeight = true
+		end
+
+		self._percentVisibleTarget.Value = percentVisible
+		self._percentAlpha:SetTarget(percentVisible, doNotAnimate)
+
+		if doNotAnimate then
+			self._percentVisible.Position = percentVisible
+			self._percentVisible.Velocity = 0
+			self._percentAlphaValue.Value = percentVisible
+		end
+
+		self._startAlphaAnimation()
 	end))
 
 	return self
@@ -1068,14 +1101,8 @@ function CommandPalette:CaptureFocus()
 end
 
 function CommandPalette:Render(props)
-	local target = self._percentVisibleTarget:Observe()
-
-	local percentVisible = Blend.Spring(target, 50, 0.9)
-	local percentAlpha = Blend.AccelTween(target, target:Pipe({
-		Rx.map(function(value)
-			return value == 1 and 400 or 2000
-		end)
-	}))
+	local percentVisible = self._percentVisible:Observe()
+	local percentAlpha = self._percentAlphaValue:Observe()
 
 	local revealedCount = 0
 	local lastEntryCount = 0
@@ -1086,12 +1113,13 @@ function CommandPalette:Render(props)
 		local divisor = math.max(1, entryCount)
 
 		local target = math.clamp(math.floor((percent - 1e-1) * divisor) + 1, 0, entryCount)
+		local doNotAnimate = self._snapVisibility
 
 		if entryCount ~= lastEntryCount then
 			lastEntryCount = entryCount
 
 			for index, entry in entries do
-				entry:SetVisible(index <= target)
+				entry:SetVisible(index <= target, doNotAnimate)
 			end
 
 			revealedCount = target
@@ -1100,11 +1128,11 @@ function CommandPalette:Render(props)
 
 		if target > revealedCount then
 			for index = revealedCount + 1, target do
-				entries[index]:SetVisible(true)
+				entries[index]:SetVisible(true, doNotAnimate)
 			end
 		elseif target < revealedCount then
 			for index = revealedCount, target + 1, -1 do
-				entries[index]:SetVisible(false)
+				entries[index]:SetVisible(false, doNotAnimate)
 			end
 		end
 
@@ -1132,7 +1160,20 @@ function CommandPalette:Render(props)
 		return math.min(content + 92, window)
 	end)
 
-	local containerPercent = Blend.Spring(containerTarget, 30, 1);
+	local containerSpring = self._maid:Add(SpringObject.new(0, 30, 1))
+	containerSpring.Epsilon = 1e-3
+
+	self._maid:GiveTask(Blend.Computed(containerTarget, function(height)
+		containerSpring.Target = height
+
+		if self._snapContainerHeight then
+			containerSpring.Position = height
+			containerSpring.Velocity = 0
+			self._snapContainerHeight = contentHeight.Value <= 0
+		end
+	end):Subscribe())
+
+	local containerPercent = containerSpring:Observe()
 
 	local layoutSettled = Blend.Computed(percentVisible, containerPercent, containerTarget, function(percent, container, target)
 		return percent > 0.99 and math.abs(container - target) < 1
