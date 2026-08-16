@@ -204,6 +204,7 @@ function EditTextOverlay:_finish(commit: boolean, committedWithReturn: boolean?)
 	local input = self._input
 	local originalText = self._originalText
 	local newText = input and input.Text
+	local cursorPosition = input and input.CursorPosition
 
 	self._target = nil
 	self._input = nil
@@ -219,7 +220,11 @@ function EditTextOverlay:_finish(commit: boolean, committedWithReturn: boolean?)
 	end
 
 	if committedWithReturn then
-		newText = string.gsub(newText, "\r?\n$", "")
+		if cursorPosition and cursorPosition > 1 and string.sub(newText, cursorPosition - 1, cursorPosition - 1) == "\n" then
+			newText = string.sub(newText, 1, cursorPosition - 2) .. string.sub(newText, cursorPosition)
+		else
+			newText = string.gsub(newText, "\r?\n$", "")
+		end
 	end
 
 	if newText == originalText then
