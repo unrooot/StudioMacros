@@ -31,11 +31,12 @@ return {
 			end
 		elseif gui:IsA("UIListLayout") then
 			local paddingIsScale = gui.Padding.Scale > 0
+			local axisSize = if gui.FillDirection == Enum.FillDirection.Horizontal then parentSize.X else parentSize.Y
 
 			if paddingIsScale then
-				gui.Padding = UDim.new(0, gui.Padding.Scale * parentSize.X)
+				gui.Padding = UDim.new(0, gui.Padding.Scale * axisSize)
 			else
-				gui.Padding = UDim.new(gui.Padding.Offset / parentSize.X, 0)
+				gui.Padding = UDim.new(gui.Padding.Offset / axisSize, 0)
 			end
 		elseif gui:IsA("UIGridLayout") then
 			local paddingIsScale = gui.CellPadding.X.Scale > 0 or gui.CellPadding.Y.Scale > 0
