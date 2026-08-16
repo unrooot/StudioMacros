@@ -16,12 +16,14 @@ return function(require)
 			return `Change {ColorPropertyUtils.getLabel(ColorPropertyUtils.getProperty(instance))}`
 		end;
 
-		Macro = function(instance, _, color)
-			if typeof(color) ~= "Color3" then
-				return
+		Macro = function(instance, _, color, alpha)
+			if typeof(color) == "Color3" then
+				ColorPropertyUtils.setColor(instance, color)
 			end
 
-			ColorPropertyUtils.setColor(instance, color)
+			if type(alpha) == "number" then
+				ColorPropertyUtils.setTransparency(instance, 1 - alpha)
+			end
 		end;
 	}
 end

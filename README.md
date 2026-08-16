@@ -110,6 +110,9 @@ return {
 	-- instance. see: WrapIntoContainer.luau for an example
 	RunOnSelection = true,
 
+	-- when CustomResults is set, the picked values are passed after `plugin`.
+	-- "Color" passes a Color3 and an alpha in 0-1 (1 being opaque), so a color
+	-- macro looks like: function(instance, plugin, color, alpha)
 	Macro = function(instance)
 		instance.Position = Vector3.zero
 		instance.Size = Vector3.one

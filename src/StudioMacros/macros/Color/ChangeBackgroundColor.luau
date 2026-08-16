@@ -8,13 +8,13 @@ return {
 		return gui:IsA("GuiObject")
 	end;
 
-	Macro = function(gui, _, color)
-		if not color then
-			return
-		end
-
+	Macro = function(gui, _, color, alpha)
 		if typeof(color) == "Color3" then
 			gui.BackgroundColor3 = color
+		end
+
+		if type(alpha) == "number" then
+			gui.BackgroundTransparency = 1 - alpha
 		end
 	end;
 }

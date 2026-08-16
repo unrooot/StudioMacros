@@ -15,14 +15,45 @@ local ValueObject = require("ValueObject")
 
 local TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
-local SLIDER_COUNT = 3
+local SLIDER_COUNT = 4
 local SLIDER_PADDING = 10
 local SLIDER_WIDTH = 16
+
+local PANE_HEIGHT = 160
+local WRAPPER_INSET = 10
+
+local INPUT_PADDING = 10
+local INPUT_ROW_COUNT = 3
+local INPUT_ROW_PADDING = 5
+local INPUT_TEXT_SIZE = 18
+
+local INPUT_ROW_HEIGHT = (PANE_HEIGHT - WRAPPER_INSET - (INPUT_ROW_COUNT - 1) * INPUT_ROW_PADDING) / INPUT_ROW_COUNT
+local INPUT_ICON_SIZE = INPUT_ROW_HEIGHT - INPUT_PADDING * 2
+
+--[[
+	The inputs are only useful when their placeholder is fully readable, so the
+	column can't flex with the window. RobotoMono advances every glyph by 0.6em,
+	which makes the widest row exactly its longest placeholder ("255, 255, 255")
+	sitting next to the icon. The color square absorbs resizing instead.
+]]
+local INPUT_CHARACTER_WIDTH = math.ceil(INPUT_TEXT_SIZE * 0.6)
+local INPUTS_WIDTH = math.ceil(INPUT_PADDING * 2 + INPUT_ICON_SIZE + INPUT_ROW_PADDING + #"255, 255, 255" * INPUT_CHARACTER_WIDTH)
+
+local OPACITY_WIDTH = math.ceil(INPUT_PADDING * 2 + #"100%" * INPUT_CHARACTER_WIDTH)
+
+local function parseOpacity(text: string): number?
+	local percent = tonumber((string.gsub(text, "%%", "")))
+	if not percent then
+		return nil
+	end
+
+	return math.clamp(percent, 0, 100) / 100
+end
 
 local ColorPickerPane = setmetatable({}, BasicPane)
 ColorPickerPane.ClassName = "ColorPickerPane"
 ColorPickerPane.CustomResultType = "Color"
-ColorPickerPane.Height = 160
+ColorPickerPane.Height = PANE_HEIGHT
 ColorPickerPane.Pinned = true
 ColorPickerPane.__index = ColorPickerPane
 
@@ -31,14 +62,15 @@ function ColorPickerPane.new()
 
 	self._tabInputMap = {}
 
-	self._currentBrightness = self._maid:Add(ValueObject.new(nil))
-	self._currentHue = self._maid:Add(ValueObject.new(nil))
-	self._currentSaturation = self._maid:Add(ValueObject.new(nil))
+	self._currentBrightness = self._maid:Add(ValueObject.new(1))
+	self._currentHue = self._maid:Add(ValueObject.new(0))
+	self._currentSaturation = self._maid:Add(ValueObject.new(0))
 	self._percentVisibleTarget = self._maid:Add(ValueObject.new(0))
 	self._tabInputIndex = self._maid:Add(ValueObject.new(nil))
 	self._targetParent = self._maid:Add(ValueObject.new(nil))
 
 	self.ColorUpdated = self._maid:Add(Signal.new())
+	self.CurrentAlpha = self._maid:Add(ValueObject.new(1))
 	self.CurrentColor = self._maid:Add(ValueObject.new(Color3.new(1, 1, 1)))
 	self.TabReturned = self._maid:Add(Signal.new())
 
@@ -102,7 +134,37 @@ function ColorPickerPane:ObserveColor()
 	return self.CurrentColor:Observe()
 end
 
-function ColorPickerPane:SetColor(color)
+function ColorPickerPane:ObserveAlpha()
+	return self.CurrentAlpha:Observe()
+end
+
+function ColorPickerPane:SetAlpha(alpha: number)
+	self.CurrentAlpha.Value = math.clamp(alpha, 0, 1)
+end
+
+--[[
+	Sets the color and realigns the sliders to match it. Hue is left where the
+	user put it when the incoming color is grayscale, and saturation when it's
+	black, because ToHSV can't recover either from those and would otherwise
+	snap both sliders back to red.
+]]
+function ColorPickerPane:SetColor(color: Color3)
+	local hue, saturation, brightness = color:ToHSV()
+
+	self._settingColor = true
+
+	if saturation > 0 then
+		self._currentHue.Value = hue
+	end
+
+	if brightness > 0 then
+		self._currentSaturation.Value = saturation
+	end
+
+	self._currentBrightness.Value = brightness
+
+	self._settingColor = false
+
 	self.CurrentColor.Value = color
 end
 
@@ -159,7 +221,7 @@ function ColorPickerPane:_endDrag()
 	end
 
 	self._dragging = nil
-	self.ColorUpdated:Fire(self.CurrentColor.Value)
+	self.ColorUpdated:Fire(self.CurrentColor.Value, self.CurrentAlpha.Value)
 end
 
 function ColorPickerPane:_updateDragPosition(position: Vector2)
@@ -169,6 +231,8 @@ function ColorPickerPane:_updateDragPosition(position: Vector2)
 		self:_updateSaturationPosition(position)
 	elseif self._dragging == "Brightness" then
 		self:_updateBrightnessPosition(position)
+	elseif self._dragging == "Alpha" then
+		self:_updateAlphaPosition(position)
 	elseif self._dragging == "Cursor" then
 		self:_updateCursorPosition(position)
 	end
@@ -222,6 +286,17 @@ function ColorPickerPane:_updateBrightnessPosition(position: Vector2)
 	self._currentBrightness.Value = math.abs(1 - value)
 end
 
+function ColorPickerPane:_updateAlphaPosition(position: Vector2)
+	if not self._alpha then
+		return
+	end
+
+	local relativeY = position.Y - self._alpha.AbsolutePosition.Y
+	local alpha = math.clamp(relativeY / self._alpha.AbsoluteSize.Y, 0, 1)
+
+	self.CurrentAlpha.Value = math.abs(1 - alpha)
+end
+
 function ColorPickerPane:SetTargetParent(targetParent)
 	self._targetParent.Value = targetParent
 end
@@ -238,13 +313,8 @@ function ColorPickerPane:Render(props)
 	local targetColor = self._maid:Add(Instance.new("Color3Value"))
 
 	self._maid:GiveTask(Blend.Computed(self._currentHue, self._currentSaturation, self._currentBrightness, function(hue, saturation, brightness)
-		if not hue or not saturation or not brightness then
-			local currentColor = self.CurrentColor.Value
-			if not currentColor then
-				return
-			end
-
-			hue, saturation, brightness = currentColor:ToHSV()
+		if self._settingColor then
+			return
 		end
 
 		self.CurrentColor.Value = Color3.fromHSV(hue, saturation, brightness)
@@ -253,21 +323,6 @@ function ColorPickerPane:Render(props)
 	self._maid:GiveTask(self.CurrentColor:Observe():Subscribe(function(newColor)
 		if not newColor then
 			return
-		end
-
-		local h, s, v = newColor:ToHSV()
-		-- Fill default hsv values
-		local currentHue = self._currentHue.Value
-		if not currentHue or h ~= self._currentHue.Value then
-			self._currentHue.Value = h
-		end
-		local currentSaturation = self._currentSaturation.Value
-		if not currentSaturation or s ~= self._currentSaturation.Value then
-			self._currentSaturation.Value = s
-		end
-		local currentBrightness = self._currentBrightness.Value
-		if not currentBrightness or v ~= self._currentBrightness.Value then
-			self._currentBrightness.Value = v
 		end
 
 		TweenService:Create(targetColor, TWEEN_INFO, {
@@ -280,6 +335,7 @@ function ColorPickerPane:Render(props)
 	local percentHue = Blend.Spring(self._currentHue, 35, 0.9)
 	local percentSaturation = Blend.Spring(self._currentSaturation, 35, 0.9)
 	local percentBrightness = Blend.Spring(self._currentBrightness, 35, 0.9)
+	local percentAlpha = Blend.Spring(self.CurrentAlpha, 35, 0.9)
 
 	local pickerCursorX = Blend.Spring(percentSaturation:Pipe({
 		Rx.map(function(percent)
@@ -328,7 +384,7 @@ function ColorPickerPane:Render(props)
 		Blend.New "Frame" {
 			Name = "wrapper";
 			BackgroundTransparency = 1;
-			Size = UDim2.new(1, 0, 1, -10);
+			Size = UDim2.new(1, 0, 1, -WRAPPER_INSET);
 
 			Blend.New "UIListLayout" {
 				FillDirection = Enum.FillDirection.Horizontal;
@@ -361,8 +417,11 @@ function ColorPickerPane:Render(props)
 				Name = "selection";
 				BackgroundTransparency = 1;
 				LayoutOrder = 2;
-				Size = UDim2.fromScale(0.5, 1);
 				ZIndex = 3;
+
+				-- Kept small so it's always the piece that grows into the space
+				-- the fixed columns leave over, however narrow the window gets.
+				Size = UDim2.fromScale(0.3, 1);
 
 				Blend.New "Frame" {
 					Name = "background";
@@ -371,6 +430,7 @@ function ColorPickerPane:Render(props)
 
 					Blend.New "Frame" {
 						Name = "white";
+						BackgroundColor3 = Color3.fromRGB(255, 255, 255);
 						BackgroundTransparency = transparency;
 						Size = UDim2.fromScale(1, 1);
 						ZIndex = 2;
@@ -408,9 +468,12 @@ function ColorPickerPane:Render(props)
 
 					Blend.New "Frame" {
 						Name = "color";
-						BackgroundColor3 = targetColor;
 						BackgroundTransparency = props.Transparency;
 						Size = UDim2.fromScale(1, 1);
+
+						BackgroundColor3 = Blend.Computed(percentHue, function(hue)
+							return Color3.fromHSV(math.clamp(hue, 0, 1), 1, 1)
+						end);
 
 						Blend.New "UICorner" {
 							CornerRadius = UDim.new(0, 5);
@@ -801,19 +864,101 @@ function ColorPickerPane:Render(props)
 						end;
 					};
 				};
+
+				Blend.New "Frame" {
+					Name = "alpha";
+					BackgroundTransparency = 1;
+					LayoutOrder = 4;
+					Size = UDim2.new(0, SLIDER_WIDTH, 1, 0);
+
+					Blend.New "Frame" {
+						Name = "container";
+						BackgroundColor3 = targetColor;
+						BackgroundTransparency = transparency;
+						Size = UDim2.fromScale(1, 1);
+						ZIndex = 2;
+
+						Blend.New "UIStroke" {
+							Color = Color3.fromRGB(40, 40, 40);
+							Transparency = transparency;
+						};
+
+						Blend.New "UICorner" {
+							CornerRadius = UDim.new(0, 3);
+						};
+
+						Blend.New "UIGradient" {
+							Rotation = 90;
+							Transparency = NumberSequence.new(0, 1);
+						};
+
+						Blend.New "Frame" {
+							Name = "cursor";
+							AnchorPoint = Vector2.new(0.5, 0.5);
+							BackgroundTransparency = transparency;
+							Size = UDim2.fromScale(1.2, 1);
+
+							Position = Blend.Computed(percentAlpha, function(percent)
+								return UDim2.fromScale(0.5, 1 - percent)
+							end);
+
+							Blend.New "UIAspectRatioConstraint" {
+								AspectRatio = 2.5;
+							};
+
+							Blend.New "UICorner" {
+								CornerRadius = UDim.new(0, 2);
+							};
+
+							Blend.New "UIStroke" {
+								Color = Color3.fromRGB(230, 230, 230);
+								Transparency = transparency;
+							};
+						};
+					};
+
+					Blend.New "TextButton" {
+						Name = "button";
+						Size = UDim2.fromScale(1, 1);
+						BackgroundColor3 = Color3.fromRGB(163, 162, 165);
+						BackgroundTransparency = 1;
+						TextColor3 = Color3.fromRGB(27, 42, 53);
+						TextSize = 8;
+						ZIndex = 5;
+
+						[Blend.Instance] = function(instance)
+							self._alpha = instance
+						end;
+
+						[Blend.OnEvent "InputBegan"] = function(input)
+							if self:_isValidInput(input) then
+								self:_beginDrag("Alpha", input)
+							end
+						end;
+
+						[Blend.OnEvent "InputEnded"] = function(input)
+							if self:_isValidInput(input) then
+								self:_endDrag()
+							end
+						end;
+					};
+				};
 			};
 
 			Blend.New "Frame" {
 				Name = "inputs";
 				BackgroundTransparency = 1;
 				LayoutOrder = 4;
-				Position = UDim2.fromScale(0.780371, 0);
-				Size = UDim2.fromScale(0.2, 1);
+				Size = UDim2.new(0, INPUTS_WIDTH, 1, 0);
 				ZIndex = 2;
+
+				Blend.New "UIFlexItem" {
+					FlexMode = Enum.UIFlexMode.None;
+				};
 
 				Blend.New "UIListLayout" {
 					HorizontalAlignment = Enum.HorizontalAlignment.Center;
-					Padding = UDim.new(0, 5);
+					Padding = UDim.new(0, INPUT_ROW_PADDING);
 					VerticalAlignment = Enum.VerticalAlignment.Center;
 					VerticalFlex = Enum.UIFlexAlignment.Fill;
 				};
@@ -838,15 +983,15 @@ function ColorPickerPane:Render(props)
 						FillDirection = Enum.FillDirection.Horizontal;
 						HorizontalAlignment = Enum.HorizontalAlignment.Center;
 						HorizontalFlex = Enum.UIFlexAlignment.Fill;
-						Padding = UDim.new(0, 5);
+						Padding = UDim.new(0, INPUT_ROW_PADDING);
 						VerticalAlignment = Enum.VerticalAlignment.Center;
 					};
 
 					Blend.New "UIPadding" {
-						PaddingBottom = UDim.new(0, 10);
-						PaddingLeft = UDim.new(0, 10);
-						PaddingRight = UDim.new(0, 10);
-						PaddingTop = UDim.new(0, 10);
+						PaddingBottom = UDim.new(0, INPUT_PADDING);
+						PaddingLeft = UDim.new(0, INPUT_PADDING);
+						PaddingRight = UDim.new(0, INPUT_PADDING);
+						PaddingTop = UDim.new(0, INPUT_PADDING);
 					};
 
 					Blend.New "ImageLabel" {
@@ -871,7 +1016,7 @@ function ColorPickerPane:Render(props)
 						FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
 						PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
 						TextColor3 = Color3.fromRGB(255, 255, 255);
-						TextSize = 18;
+						TextSize = INPUT_TEXT_SIZE;
 						TextXAlignment = Enum.TextXAlignment.Left;
 						ZIndex = 5;
 
@@ -929,114 +1074,215 @@ function ColorPickerPane:Render(props)
 				};
 
 				Blend.New "Frame" {
-					Name = "hex";
-					BackgroundColor3 = Color3.fromRGB(15, 15, 15);
-					BackgroundTransparency = transparency;
+					Name = "hexValues";
+					BackgroundTransparency = 1;
 					LayoutOrder = 2;
 					Size = UDim2.fromScale(1, 1);
-
-					Blend.New "UICorner" {
-						CornerRadius = UDim.new(0, 5);
-					};
-
-					Blend.New "UIStroke" {
-						Color = Color3.fromRGB(40, 40, 40);
-						Transparency = transparency;
-					};
 
 					Blend.New "UIListLayout" {
 						FillDirection = Enum.FillDirection.Horizontal;
 						HorizontalAlignment = Enum.HorizontalAlignment.Center;
 						HorizontalFlex = Enum.UIFlexAlignment.Fill;
-						Padding = UDim.new(0, 5);
+						Padding = UDim.new(0, INPUT_ROW_PADDING);
 						VerticalAlignment = Enum.VerticalAlignment.Center;
 					};
 
-					Blend.New "UIPadding" {
-						PaddingBottom = UDim.new(0, 10);
-						PaddingLeft = UDim.new(0, 10);
-						PaddingRight = UDim.new(0, 10);
-						PaddingTop = UDim.new(0, 10);
-					};
-
-					Blend.New "ImageLabel" {
-						Name = "icon";
-						BackgroundTransparency = 1;
-						Image = "rbxassetid://6035078895";
-						ImageColor3 = Color3.fromRGB(75, 75, 75);
-						ImageTransparency = transparency;
+					Blend.New "Frame" {
+						Name = "hex";
+						BackgroundColor3 = Color3.fromRGB(15, 15, 15);
+						BackgroundTransparency = transparency;
 						LayoutOrder = 1;
 						Size = UDim2.fromScale(1, 1);
 
-						Blend.New "UIAspectRatioConstraint" {
-							AspectRatio = 1;
+						Blend.New "UICorner" {
+							CornerRadius = UDim.new(0, 5);
 						};
-					};
 
-					Blend.New "TextBox" {
-						Name = "input";
-						BackgroundColor3 = Color3.fromRGB(163, 162, 165);
-						BackgroundTransparency = 1;
-						FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
-						LayoutOrder = 2;
-						PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
-						Size = UDim2.fromScale(1, 1);
-						TextColor3 = Color3.fromRGB(255, 255, 255);
-						TextSize = 18;
-						TextTransparency = transparency;
-						TextXAlignment = Enum.TextXAlignment.Left;
-						ZIndex = 5;
+						Blend.New "UIStroke" {
+							Color = Color3.fromRGB(40, 40, 40);
+							Transparency = transparency;
+						};
 
-						PlaceholderText = Blend.Computed(targetColor, function(color)
-							return color:ToHex()
-						end);
+						Blend.New "UIListLayout" {
+							FillDirection = Enum.FillDirection.Horizontal;
+							HorizontalAlignment = Enum.HorizontalAlignment.Center;
+							HorizontalFlex = Enum.UIFlexAlignment.Fill;
+							Padding = UDim.new(0, INPUT_ROW_PADDING);
+							VerticalAlignment = Enum.VerticalAlignment.Center;
+						};
 
-						[Blend.Instance] = function(textBox)
-							self._hexInput = textBox
-							table.insert(self._tabInputMap, 2, textBox)
-						end;
+						Blend.New "UIPadding" {
+							PaddingBottom = UDim.new(0, INPUT_PADDING);
+							PaddingLeft = UDim.new(0, INPUT_PADDING);
+							PaddingRight = UDim.new(0, INPUT_PADDING);
+							PaddingTop = UDim.new(0, INPUT_PADDING);
+						};
 
-						[Blend.OnChange "Text"] = function(newText)
-							if not self._hexInput then
-								return
-							end
+						Blend.New "ImageLabel" {
+							Name = "icon";
+							BackgroundTransparency = 1;
+							Image = "rbxassetid://6035078895";
+							ImageColor3 = Color3.fromRGB(75, 75, 75);
+							ImageTransparency = transparency;
+							LayoutOrder = 1;
+							Size = UDim2.fromScale(1, 1);
 
-							if newText == self._hexInput.PlaceholderText then
-								return
-							end
+							Blend.New "UIAspectRatioConstraint" {
+								AspectRatio = 1;
+							};
+						};
 
-							if SearchUtils.stringIsHex(self._hexInput.Text) then
-								local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
-								self:SetColor(Color3.fromHex(hex))
-							end
-						end;
+						Blend.New "TextBox" {
+							Name = "input";
+							BackgroundColor3 = Color3.fromRGB(163, 162, 165);
+							BackgroundTransparency = 1;
+							FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+							LayoutOrder = 1;
+							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
+							Size = UDim2.fromScale(1, 1);
+							TextColor3 = Color3.fromRGB(255, 255, 255);
+							TextSize = INPUT_TEXT_SIZE;
+							TextTransparency = transparency;
+							TextXAlignment = Enum.TextXAlignment.Left;
+							ZIndex = 5;
 
-						[Blend.OnEvent "Focused"] = function()
-							self:_handleFocused(self._hexInput)
-						end;
+							PlaceholderText = Blend.Computed(targetColor, function(color)
+								return color:ToHex()
+							end);
 
-						[Blend.OnEvent "FocusLost"] = function(enterPressed)
-							if not self._hexInput then
-								return
-							end
+							[Blend.Instance] = function(textBox)
+								self._hexInput = textBox
+								table.insert(self._tabInputMap, 2, textBox)
+							end;
 
-							if enterPressed then
-								if self._hexInput.Text ~= self._hexInput.PlaceholderText then
-									if SearchUtils.stringIsHex(self._hexInput.Text) then
-										local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
-										self:SetColor(Color3.fromHex(hex))
+							[Blend.OnChange "Text"] = function(newText)
+								if not self._hexInput then
+									return
+								end
+
+								if newText == self._hexInput.PlaceholderText then
+									return
+								end
+
+								if SearchUtils.stringIsHex(self._hexInput.Text) then
+									local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
+									self:SetColor(Color3.fromHex(hex))
+								end
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self:_handleFocused(self._hexInput)
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								if not self._hexInput then
+									return
+								end
+
+								if enterPressed then
+									if self._hexInput.Text ~= self._hexInput.PlaceholderText then
+										if SearchUtils.stringIsHex(self._hexInput.Text) then
+											local _, hex = SearchUtils.stringIsHex(self._hexInput.Text)
+											self:SetColor(Color3.fromHex(hex))
+										end
+
+										self._hexInput.Text = ""
+									else
+										self._hexInput.Text = ""
 									end
-
-									self._hexInput.Text = ""
 								else
 									self._hexInput.Text = ""
 								end
-							else
-								self._hexInput.Text = ""
-							end
 
-							self:_handleFocusLost()
-						end;
+								self:_handleFocusLost()
+							end;
+						};
+					};
+
+					Blend.New "Frame" {
+						Name = "opacity";
+						BackgroundColor3 = Color3.fromRGB(15, 15, 15);
+						BackgroundTransparency = transparency;
+						LayoutOrder = 2;
+						Size = UDim2.new(0, OPACITY_WIDTH, 1, 0);
+
+						Blend.New "UIFlexItem" {
+							FlexMode = Enum.UIFlexMode.None;
+						};
+
+						Blend.New "UICorner" {
+							CornerRadius = UDim.new(0, 5);
+						};
+
+						Blend.New "UIStroke" {
+							Color = Color3.fromRGB(40, 40, 40);
+							Transparency = transparency;
+						};
+
+						Blend.New "UIPadding" {
+							PaddingBottom = UDim.new(0, INPUT_PADDING);
+							PaddingLeft = UDim.new(0, INPUT_PADDING);
+							PaddingRight = UDim.new(0, INPUT_PADDING);
+							PaddingTop = UDim.new(0, INPUT_PADDING);
+						};
+
+						Blend.New "TextBox" {
+							Name = "input";
+							BackgroundColor3 = Color3.fromRGB(163, 162, 165);
+							BackgroundTransparency = 1;
+							FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold, Enum.FontStyle.Normal);
+							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
+							Size = UDim2.fromScale(1, 1);
+							TextColor3 = Color3.fromRGB(255, 255, 255);
+							TextSize = INPUT_TEXT_SIZE;
+							TextTransparency = transparency;
+							ZIndex = 5;
+
+							PlaceholderText = Blend.Computed(self.CurrentAlpha, function(alpha)
+								return `{math.round(alpha * 100)}%`
+							end);
+
+							[Blend.Instance] = function(textBox)
+								self._opacityInput = textBox
+								table.insert(self._tabInputMap, 3, textBox)
+							end;
+
+							[Blend.OnChange "Text"] = function(newText)
+								if not self._opacityInput or not self._opacityInput:IsFocused() then
+									return
+								end
+
+								if newText == self._opacityInput.PlaceholderText then
+									return
+								end
+
+								local alpha = parseOpacity(newText)
+								if alpha then
+									self:SetAlpha(alpha)
+								end
+							end;
+
+							[Blend.OnEvent "Focused"] = function()
+								self:_handleFocused(self._opacityInput)
+							end;
+
+							[Blend.OnEvent "FocusLost"] = function(enterPressed)
+								if not self._opacityInput then
+									return
+								end
+
+								local text = self._opacityInput.Text
+								if enterPressed and text ~= self._opacityInput.PlaceholderText then
+									local alpha = parseOpacity(text)
+									if alpha then
+										self:SetAlpha(alpha)
+									end
+								end
+
+								self._opacityInput.Text = ""
+								self:_handleFocusLost()
+							end;
+						};
 					};
 				};
 
@@ -1050,7 +1296,7 @@ function ColorPickerPane:Render(props)
 						FillDirection = Enum.FillDirection.Horizontal;
 						HorizontalAlignment = Enum.HorizontalAlignment.Center;
 						HorizontalFlex = Enum.UIFlexAlignment.Fill;
-						Padding = UDim.new(0, 5);
+						Padding = UDim.new(0, INPUT_ROW_PADDING);
 						VerticalAlignment = Enum.VerticalAlignment.Center;
 					};
 
@@ -1071,10 +1317,10 @@ function ColorPickerPane:Render(props)
 						};
 
 						Blend.New "UIPadding" {
-							PaddingBottom = UDim.new(0, 10);
-							PaddingLeft = UDim.new(0, 10);
-							PaddingRight = UDim.new(0, 10);
-							PaddingTop = UDim.new(0, 10);
+							PaddingBottom = UDim.new(0, INPUT_PADDING);
+							PaddingLeft = UDim.new(0, INPUT_PADDING);
+							PaddingRight = UDim.new(0, INPUT_PADDING);
+							PaddingTop = UDim.new(0, INPUT_PADDING);
 						};
 
 						Blend.New "TextBox" {
@@ -1086,7 +1332,7 @@ function ColorPickerPane:Render(props)
 							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
 							Size = UDim2.fromScale(1, 1);
 							TextColor3 = Color3.fromRGB(255, 255, 255);
-							TextSize = 18;
+							TextSize = INPUT_TEXT_SIZE;
 							TextTransparency = transparency;
 							ZIndex = 5;
 
@@ -1096,7 +1342,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._rInput = textBox
-								table.insert(self._tabInputMap, 3, textBox)
+								table.insert(self._tabInputMap, 4, textBox)
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
@@ -1169,10 +1415,10 @@ function ColorPickerPane:Render(props)
 						};
 
 						Blend.New "UIPadding" {
-							PaddingBottom = UDim.new(0, 10);
-							PaddingLeft = UDim.new(0, 10);
-							PaddingRight = UDim.new(0, 10);
-							PaddingTop = UDim.new(0, 10);
+							PaddingBottom = UDim.new(0, INPUT_PADDING);
+							PaddingLeft = UDim.new(0, INPUT_PADDING);
+							PaddingRight = UDim.new(0, INPUT_PADDING);
+							PaddingTop = UDim.new(0, INPUT_PADDING);
 						};
 
 						Blend.New "TextBox" {
@@ -1184,7 +1430,7 @@ function ColorPickerPane:Render(props)
 							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
 							Size = UDim2.fromScale(1, 1);
 							TextColor3 = Color3.fromRGB(255, 255, 255);
-							TextSize = 18;
+							TextSize = INPUT_TEXT_SIZE;
 							TextTransparency = transparency;
 							ZIndex = 5;
 
@@ -1194,7 +1440,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._gInput = textBox
-								table.insert(self._tabInputMap, 4, textBox)
+								table.insert(self._tabInputMap, 5, textBox)
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
@@ -1267,10 +1513,10 @@ function ColorPickerPane:Render(props)
 						};
 
 						Blend.New "UIPadding" {
-							PaddingBottom = UDim.new(0, 10);
-							PaddingLeft = UDim.new(0, 10);
-							PaddingRight = UDim.new(0, 10);
-							PaddingTop = UDim.new(0, 10);
+							PaddingBottom = UDim.new(0, INPUT_PADDING);
+							PaddingLeft = UDim.new(0, INPUT_PADDING);
+							PaddingRight = UDim.new(0, INPUT_PADDING);
+							PaddingTop = UDim.new(0, INPUT_PADDING);
 						};
 
 						Blend.New "TextBox" {
@@ -1282,7 +1528,7 @@ function ColorPickerPane:Render(props)
 							PlaceholderColor3 = Color3.fromRGB(80, 80, 80);
 							Size = UDim2.fromScale(1, 1);
 							TextColor3 = Color3.fromRGB(255, 255, 255);
-							TextSize = 18;
+							TextSize = INPUT_TEXT_SIZE;
 							TextTransparency = transparency;
 							ZIndex = 5;
 
@@ -1292,7 +1538,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._bInput = textBox
-								table.insert(self._tabInputMap, 5, textBox)
+								table.insert(self._tabInputMap, 6, textBox)
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)

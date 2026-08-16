@@ -12,6 +12,7 @@ local Blend = require("Blend")
 local ButtonHighlightModel = require("ButtonHighlightModel")
 local ColorEntry = require("ColorEntry")
 local ColorPickerPane = require("ColorPickerPane")
+local ColorPropertyUtils = require("ColorPropertyUtils")
 local CommandGroup = require("CommandGroup")
 local FontData = require("FontData")
 local FontEntry = require("FontEntry")
@@ -883,6 +884,27 @@ function CommandPalette:_setupColorResults()
 			return value
 		end
 
+		local function resolveTransparencyProperty(instance)
+			return ColorPropertyUtils.getTransparencyPropertyFor(resolveProperty(instance))
+		end
+
+		local function readTransparency(instance)
+			local property = resolveTransparencyProperty(instance)
+			if not property then
+				return nil
+			end
+
+			local success, value = pcall(function()
+				return instance[property]
+			end)
+
+			if not success or typeof(value) ~= "number" then
+				return nil
+			end
+
+			return value
+		end
+
 		local seedInstance
 		for _, instance in initialSelection do
 			if readColor(instance) then
@@ -895,15 +917,22 @@ function CommandPalette:_setupColorResults()
 			return
 		end
 
-		colorPickerPane:SetColor(readColor(seedInstance))
+		local function seedFrom(instance)
+			colorPickerPane:SetColor(readColor(instance))
+
+			local transparency = readTransparency(instance)
+			colorPickerPane:SetAlpha(transparency and 1 - transparency or 1)
+		end
+
+		seedFrom(seedInstance)
 
 		-- Undo/redo support
 		maid:GiveTask(ChangeHistoryService.OnUndo:Connect(function()
-			colorPickerPane:SetColor(readColor(seedInstance))
+			seedFrom(seedInstance)
 		end))
 
 		maid:GiveTask(ChangeHistoryService.OnRedo:Connect(function()
-			colorPickerPane:SetColor(readColor(seedInstance))
+			seedFrom(seedInstance)
 		end))
 
 		maid:GiveTask(colorPickerPane:ObserveColor():Subscribe(function(newColor)
@@ -919,10 +948,25 @@ function CommandPalette:_setupColorResults()
 			end
 		end))
 
+		maid:GiveTask(colorPickerPane:ObserveAlpha():Subscribe(function(alpha)
+			if not alpha then
+				return
+			end
+
+			local newTransparency = 1 - alpha
+
+			for _, instance in initialSelection do
+				local current = readTransparency(instance)
+				if current and current ~= newTransparency then
+					instance[resolveTransparencyProperty(instance)] = newTransparency
+				end
+			end
+		end))
+
 		-- Since we don't want to spam the undo stack as they're picking a
 		-- color, we only want to fire the macro when the user stops dragging
-		maid:GiveTask(colorPickerPane.ColorUpdated:Connect(function(newColor)
-			self.CustomResultActivated:Fire("Color", true, newColor)
+		maid:GiveTask(colorPickerPane.ColorUpdated:Connect(function(newColor, alpha)
+			self.CustomResultActivated:Fire("Color", true, newColor, alpha)
 		end))
 	end))
 
@@ -940,7 +984,7 @@ function CommandPalette:_setupColorResults()
 
 		self._maid:GiveTask(entry.Activated:Connect(function(shiftPressed)
 			colorPickerPane:SetColor(brickColor.Color)
-			self.CustomResultActivated:Fire("Color", shiftPressed, brickColor.Color)
+			self.CustomResultActivated:Fire("Color", shiftPressed, brickColor.Color, colorPickerPane.CurrentAlpha.Value)
 		end))
 	end
 
@@ -1681,14 +1725,16 @@ function CommandPalette:Render(props)
 												if self._colorPicker then
 													self._colorPicker:SetColor(newColor)
 												end
-												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor,
+													self._colorPicker and self._colorPicker.CurrentAlpha.Value)
 											elseif SearchUtils.stringIsHex(currentText) then
 												local _, hex = SearchUtils.stringIsHex(currentText)
 												local newColor = Color3.fromHex(hex)
 												if self._colorPicker then
 													self._colorPicker:SetColor(newColor)
 												end
-												self.CustomResultActivated:Fire("Color", shiftPressed, newColor)
+												self.CustomResultActivated:Fire("Color", shiftPressed, newColor,
+													self._colorPicker and self._colorPicker.CurrentAlpha.Value)
 											end
 										elseif customResultsType == "Number" then
 											local value = self:EvaluateNumberInput(self._input.Text)
