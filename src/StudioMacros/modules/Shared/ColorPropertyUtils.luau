@@ -2,6 +2,7 @@ local ColorPropertyUtils = {}
 
 local RULES = {
 	{ ClassName = "UIStroke"; Property = "Color" };
+	{ ClassName = "UIShadow"; Property = "Color" };
 	{ ClassName = "TextLabel"; Property = "TextColor3" };
 	{ ClassName = "TextButton"; Property = "TextColor3" };
 	{ ClassName = "TextBox"; Property = "TextColor3" };

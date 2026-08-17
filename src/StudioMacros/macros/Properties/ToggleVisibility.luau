@@ -1,9 +1,13 @@
+local function usesEnabled(gui)
+	return gui:IsA("LayerCollector") or gui:IsA("UIStroke") or gui:IsA("UIGradient")
+end
+
 return {
 	Name = "Toggle Visibility";
 	Description = "Toggle the object's visibility.";
 
 	Predicate = function(gui)
-		return gui ~= nil and (gui:IsA("GuiObject") or gui:IsA("ScreenGui") or gui:IsA("UIStroke") or gui:IsA("UIGradient"))
+		return gui ~= nil and (gui:IsA("GuiObject") or usesEnabled(gui))
 	end;
 
 	ToggleValue = function(gui)
@@ -11,7 +15,7 @@ return {
 			return nil
 		end
 
-		if gui:IsA("ScreenGui") or gui:IsA("UIStroke") or gui:IsA("UIGradient") then
+		if usesEnabled(gui) then
 			return gui.Enabled
 		else
 			return gui.Visible
@@ -19,7 +23,7 @@ return {
 	end;
 
 	Macro = function(gui)
-		if gui:IsA("ScreenGui") or gui:IsA("UIStroke") or gui:IsA("UIGradient") then
+		if usesEnabled(gui) then
 			gui.Enabled = not gui.Enabled
 		else
 			gui.Visible = not gui.Visible
