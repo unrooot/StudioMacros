@@ -39,15 +39,16 @@ local INPUT_ICON_SIZE = INPUT_ROW_HEIGHT - INPUT_PADDING * 2
 local INPUT_CHARACTER_WIDTH = math.ceil(INPUT_TEXT_SIZE * 0.6)
 local INPUTS_WIDTH = math.ceil(INPUT_PADDING * 2 + INPUT_ICON_SIZE + INPUT_ROW_PADDING + #"255, 255, 255" * INPUT_CHARACTER_WIDTH)
 
-local OPACITY_WIDTH = math.ceil(INPUT_PADDING * 2 + #"100%" * INPUT_CHARACTER_WIDTH)
+local TRANSPARENCY_WIDTH = math.ceil(INPUT_PADDING * 2 + #"0.00" * INPUT_CHARACTER_WIDTH)
 
-local function parseOpacity(text: string): number?
-	local percent = tonumber((string.gsub(text, "%%", "")))
-	if not percent then
+--- Reads a Transparency-style 0-1 value and returns it as alpha.
+local function parseTransparency(text: string): number?
+	local value = tonumber(text)
+	if not value then
 		return nil
 	end
 
-	return math.clamp(percent, 0, 100) / 100
+	return 1 - math.clamp(value, 0, 1)
 end
 
 local ColorPickerPane = setmetatable({}, BasicPane)
@@ -1026,7 +1027,7 @@ function ColorPickerPane:Render(props)
 
 						[Blend.Instance] = function(textBox)
 							self._rgbInput = textBox
-							table.insert(self._tabInputMap, 1, textBox)
+							self._tabInputMap[1] = textBox
 						end;
 
 						[Blend.OnChange "Text"] = function(newText)
@@ -1076,7 +1077,7 @@ function ColorPickerPane:Render(props)
 				Blend.New "Frame" {
 					Name = "hexValues";
 					BackgroundTransparency = 1;
-					LayoutOrder = 2;
+					LayoutOrder = 3;
 					Size = UDim2.fromScale(1, 1);
 
 					Blend.New "UIListLayout" {
@@ -1152,7 +1153,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._hexInput = textBox
-								table.insert(self._tabInputMap, 2, textBox)
+								self._tabInputMap[5] = textBox
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
@@ -1200,11 +1201,11 @@ function ColorPickerPane:Render(props)
 					};
 
 					Blend.New "Frame" {
-						Name = "opacity";
+						Name = "transparency";
 						BackgroundColor3 = Color3.fromRGB(15, 15, 15);
 						BackgroundTransparency = transparency;
 						LayoutOrder = 2;
-						Size = UDim2.new(0, OPACITY_WIDTH, 1, 0);
+						Size = UDim2.new(0, TRANSPARENCY_WIDTH, 1, 0);
 
 						Blend.New "UIFlexItem" {
 							FlexMode = Enum.UIFlexMode.None;
@@ -1239,47 +1240,47 @@ function ColorPickerPane:Render(props)
 							ZIndex = 5;
 
 							PlaceholderText = Blend.Computed(self.CurrentAlpha, function(alpha)
-								return `{math.round(alpha * 100)}%`
+								return string.format("%.2f", 1 - alpha)
 							end);
 
 							[Blend.Instance] = function(textBox)
-								self._opacityInput = textBox
-								table.insert(self._tabInputMap, 3, textBox)
+								self._transparencyInput = textBox
+								self._tabInputMap[6] = textBox
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
-								if not self._opacityInput or not self._opacityInput:IsFocused() then
+								if not self._transparencyInput or not self._transparencyInput:IsFocused() then
 									return
 								end
 
-								if newText == self._opacityInput.PlaceholderText then
+								if newText == self._transparencyInput.PlaceholderText then
 									return
 								end
 
-								local alpha = parseOpacity(newText)
+								local alpha = parseTransparency(newText)
 								if alpha then
 									self:SetAlpha(alpha)
 								end
 							end;
 
 							[Blend.OnEvent "Focused"] = function()
-								self:_handleFocused(self._opacityInput)
+								self:_handleFocused(self._transparencyInput)
 							end;
 
 							[Blend.OnEvent "FocusLost"] = function(enterPressed)
-								if not self._opacityInput then
+								if not self._transparencyInput then
 									return
 								end
 
-								local text = self._opacityInput.Text
-								if enterPressed and text ~= self._opacityInput.PlaceholderText then
-									local alpha = parseOpacity(text)
+								local text = self._transparencyInput.Text
+								if enterPressed and text ~= self._transparencyInput.PlaceholderText then
+									local alpha = parseTransparency(text)
 									if alpha then
 										self:SetAlpha(alpha)
 									end
 								end
 
-								self._opacityInput.Text = ""
+								self._transparencyInput.Text = ""
 								self:_handleFocusLost()
 							end;
 						};
@@ -1288,7 +1289,7 @@ function ColorPickerPane:Render(props)
 
 				Blend.New "Frame" {
 					Name = "rgbValues";
-					LayoutOrder = 3;
+					LayoutOrder = 2;
 					Size = UDim2.fromScale(1, 1);
 					BackgroundTransparency = 1;
 
@@ -1342,7 +1343,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._rInput = textBox
-								table.insert(self._tabInputMap, 4, textBox)
+								self._tabInputMap[2] = textBox
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
@@ -1440,7 +1441,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._gInput = textBox
-								table.insert(self._tabInputMap, 5, textBox)
+								self._tabInputMap[3] = textBox
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
@@ -1538,7 +1539,7 @@ function ColorPickerPane:Render(props)
 
 							[Blend.Instance] = function(textBox)
 								self._bInput = textBox
-								table.insert(self._tabInputMap, 6, textBox)
+								self._tabInputMap[4] = textBox
 							end;
 
 							[Blend.OnChange "Text"] = function(newText)
