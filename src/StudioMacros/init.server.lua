@@ -124,10 +124,8 @@ local function initialize(plugin)
 		pane:Show(true)
 	end))
 
-	local restoringSelection = false
-
 	maid:GiveTask(Selection.SelectionChanged:Connect(function()
-		if restoringSelection or not pane:IsVisible() then
+		if not pane:IsVisible() then
 			return
 		end
 
@@ -135,32 +133,9 @@ local function initialize(plugin)
 
 		if #selection > 0 then
 			pane.TargetSelection.Value = selection
-			return
 		end
-
-		local targetSelection = pane.TargetSelection.Value
-		if not targetSelection or #targetSelection == 0 then
-			return
-		end
-
-		local liveSelection = {}
-		for _, selectedInstance in targetSelection do
-			if selectedInstance:IsDescendantOf(game) then
-				table.insert(liveSelection, selectedInstance)
-			end
-		end
-
-		if #liveSelection == 0 then
-			pane.TargetSelection.Value = nil
-			return
-		end
-
-		restoringSelection = true
-		Selection:Set(liveSelection)
-
-		task.defer(function()
-			restoringSelection = false
-		end)
+		-- Keep the palette's target when a UI click clears selection, but
+		-- only restore it when the user actually runs a macro.
 	end))
 
 	maid:GiveTask(plugin.Unloading:Connect(function()
@@ -319,16 +294,16 @@ local function initialize(plugin)
 					local newSelection = {}
 					local selectedInstances = Selection:Get()
 
-					-- HACK: This is necessary because if you click a
-					-- TextButton in the palette, your selection will be
-					-- cleared, which is not desired. idk if this will lead to
-					-- more unintended behavior yet, also if you collapse a
-					-- group it will clear your selection before a macro is
-					-- selected.
+					-- Palette buttons can clear Studio selection. Use the cached
+					-- target only while the palette is open, skipping removed instances.
 					local revertSelection = false
-					if (not selectedInstances or #selectedInstances == 0) and pane.TargetSelection.Value then
-						selectedInstances = pane.TargetSelection.Value
-						revertSelection = true
+					if #selectedInstances == 0 and pane:IsVisible() and pane.TargetSelection.Value then
+						for _, selectedInstance in pane.TargetSelection.Value do
+							if selectedInstance:IsDescendantOf(game) then
+								table.insert(selectedInstances, selectedInstance)
+							end
+						end
+						revertSelection = #selectedInstances > 0
 					end
 
 					local undoRecording
