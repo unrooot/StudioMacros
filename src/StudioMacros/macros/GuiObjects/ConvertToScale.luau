@@ -1,22 +1,31 @@
+local function getBounds(parent)
+	if parent:IsA("ScreenGui") then
+		return workspace.CurrentCamera.ViewportSize
+	end
+
+	return parent.AbsoluteSize
+end
+
 return {
 	Name = "Convert to Scale";
-	Description = "Convert the GuiObject's size from offset to scale.";
+	Description = "Convert the GuiObject's size, or the UIListLayout's padding, from offset to scale.";
 
 	Predicate = function(gui)
-		return gui:IsA("GuiObject")
+		return gui:IsA("GuiObject") or gui:IsA("UIListLayout")
 	end;
 
 	Macro = function(gui)
-		local currentSize = gui.AbsoluteSize
-		local parent = gui.Parent
+		local bounds = getBounds(gui.Parent)
 
-		local bounds
-		if parent:IsA("ScreenGui") then
-			bounds = workspace.CurrentCamera.ViewportSize
-		else
-			bounds = parent.AbsoluteSize
+		if gui:IsA("UIListLayout") then
+			local axisSize = if gui.FillDirection == Enum.FillDirection.Horizontal then bounds.X else bounds.Y
+			local padding = gui.Padding.Scale * axisSize + gui.Padding.Offset
+
+			gui.Padding = UDim.new(padding / axisSize, 0)
+			return
 		end
 
+		local currentSize = gui.AbsoluteSize
 		gui.Size = UDim2.fromScale(currentSize.X / bounds.X, currentSize.Y / bounds.Y)
 	end;
 }
