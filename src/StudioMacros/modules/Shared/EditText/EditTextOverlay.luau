@@ -1,12 +1,12 @@
 local require = require(script.Parent.loader).load(script)
 
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local Selection = game:GetService("Selection")
 local UserInputService = game:GetService("UserInputService")
 
 local Blend = require("Blend")
+local ChangeHistoryUtils = require("ChangeHistoryUtils")
 local Maid = require("Maid")
 
 local DISPLAY_ORDER = 1001
@@ -231,13 +231,9 @@ function EditTextOverlay:_finish(commit: boolean, committedWithReturn: boolean?)
 		return
 	end
 
-	local recording = ChangeHistoryService:TryBeginRecording("Edit Text")
-
-	target.Text = newText
-
-	if recording then
-		ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
-	end
+	ChangeHistoryUtils.record("Edit Text", function()
+		target.Text = newText
+	end)
 end
 
 function EditTextOverlay:Destroy()

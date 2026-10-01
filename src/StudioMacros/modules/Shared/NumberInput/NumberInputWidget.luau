@@ -1,8 +1,8 @@
 local require = require(script.Parent.loader).load(script)
 
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local Selection = game:GetService("Selection")
 
+local ChangeHistoryUtils = require("ChangeHistoryUtils")
 local Maid = require("Maid")
 local NumberInputPane = require("NumberInputPane")
 local evaluateNumberInput = require("evaluateNumberInput")
@@ -292,19 +292,11 @@ function NumberInputWidget:_apply(text: string)
 		return
 	end
 
-	local recordingName = self._config.RecordingName or self._config.Title
-	local recording = ChangeHistoryService:TryBeginRecording(recordingName)
-	if not recording then
-		warn("[StudioMacros]: Failed to begin recording for", recordingName)
-	end
-
-	for _, entry in resolved do
-		self._config.Apply(entry.Target, entry.Value)
-	end
-
-	if recording then
-		ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
-	end
+	ChangeHistoryUtils.record(self._config.RecordingName or self._config.Title, function()
+		for _, entry in resolved do
+			self._config.Apply(entry.Target, entry.Value)
+		end
+	end)
 
 	self:Close()
 end

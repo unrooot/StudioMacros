@@ -1,8 +1,8 @@
 local require = require(script.Parent.loader).load(script)
 
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local Selection = game:GetService("Selection")
 
+local ChangeHistoryUtils = require("ChangeHistoryUtils")
 local ChangeSizePane = require("ChangeSizePane")
 local ExpressionUtils = require("ExpressionUtils")
 local Maid = require("Maid")
@@ -267,18 +267,11 @@ function ChangeSizeWidget:_apply(values)
 		return
 	end
 
-	local recording = ChangeHistoryService:TryBeginRecording("Change Size")
-	if not recording then
-		warn("[StudioMacros]: Failed to begin recording for Change Size")
-	end
-
-	for _, entry in resolved do
-		entry.Target.Size = entry.Size
-	end
-
-	if recording then
-		ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
-	end
+	ChangeHistoryUtils.record("Change Size", function()
+		for _, entry in resolved do
+			entry.Target.Size = entry.Size
+		end
+	end)
 
 	self:Close()
 end
