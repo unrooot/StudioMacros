@@ -9,6 +9,7 @@ local Selection = game:GetService("Selection")
 local UserInputService = game:GetService("UserInputService")
 
 local Blend = require("Blend")
+local ChangeHistoryUtils = require("ChangeHistoryUtils")
 local CommandGroup = require("CommandGroup")
 local CommandPalette = require("CommandPalette")
 local CustomResultsWidget = require("CustomResultsWidget")
@@ -331,7 +332,7 @@ local function initialize(plugin)
 						revertSelection = true
 					end
 
-					local undoRecording
+					local undoRecording, recordingStarted
 					local toggledInstance
 					local packedArguments = table.pack(...)
 
@@ -339,10 +340,8 @@ local function initialize(plugin)
 					lastArguments = packedArguments
 
 					local function startRecording()
+						recordingStarted = true
 						undoRecording = ChangeHistoryService:TryBeginRecording(macroData.Name)
-						if not undoRecording then
-							warn("[StudioMacros]: Failed to begin recording for", macroData.Name)
-						end
 					end
 
 					local function closePane()
@@ -416,12 +415,8 @@ local function initialize(plugin)
 						end
 					end, debug.traceback)
 
-					if undoRecording then
-						local operation = Enum.FinishRecordingOperation.Cancel
-						if success then
-							operation = Enum.FinishRecordingOperation.Commit
-						end
-						ChangeHistoryService:FinishRecording(undoRecording, operation)
+					if recordingStarted then
+						ChangeHistoryUtils.finishRecording(macroData.Name, undoRecording, success)
 					end
 
 					if success then
